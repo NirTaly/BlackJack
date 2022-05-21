@@ -1,4 +1,3 @@
-import numpy as np
 import random
 from builtins import print
 
@@ -151,7 +150,6 @@ class Game:
 					return -1
 
 		#Dealer Moves
-
 		player_sum = self.sum_hands(self.playerCards[0]) 		#TODO handle for split (2 hands)
 		player_win = True
 		while True:
