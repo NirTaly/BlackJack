@@ -33,6 +33,7 @@ class Game:
 	def reset_hands(self):
 		self.playerCards = [[]]
 		self.dealerCards = []
+		self.isSplit = False
 
 	def print_hands(self, showDealerCard = True):
 		dealer_str = "Dealer's Cards: "
@@ -66,8 +67,9 @@ class Game:
 		hand_sum = sum(cards_values[i] for i in hand)
 
 		#Ace is soft!
-		if 1 in hand and hand_sum > 21:
-			hand_sum -= 10
+		for i in range(hand.count(1)):
+			if hand_sum > 21:
+				hand_sum -= 10
 		return hand_sum
 
 	def manageBet(self, dealer_sum, player_sum, move, bet):
