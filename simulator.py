@@ -26,14 +26,17 @@ class Game:
 	def __init__(self, money=100):
 		self.money = money
 		self.shoe = Shoe()
-		self.playerCards = [[]]
-		self.dealerCards = []
-		self.isSplit = False
+		self.reset_hands()
+		# self.playerCards = [[]]
+		# self.dealerCards = []
+		# self.isSplit = False
+		# self.isDouble = False
 
 	def reset_hands(self):
 		self.playerCards = [[]]
 		self.dealerCards = []
 		self.isSplit = False
+		self.isDouble = False
 
 	def print_hands(self, showDealerCard = True):
 		dealer_str = "Dealer's Cards: "
@@ -72,20 +75,21 @@ class Game:
 				hand_sum -= 10
 		return hand_sum
 
-	def manageBet(self, dealer_sum, player_sum, move, bet):
-		if self.isSplit:
-			#TODO
-			pass
-		else:
-			if dealer_sum == player_sum:
-				self.money += bet[0]
-				return 0
+	def manageBet(self, dealer_sum, player_sums, bet) -> int:
+		retval = 0
+		for i,_ in enumerate(self.playerCards):
+			if dealer_sum == player_sums[i]:
+				self.money += bet[i]
 			elif dealer_sum > 21:
-				self.money += 2*bet[0]
-			elif player_sum > dealer_sum and player_sum <= 21:
-				self.money += 2*bet[0]
+				self.money += 2*bet[i]
+				retval += 1 + self.isDouble
+			elif player_sums[i] > dealer_sum and player_sums[i] <= 21:
+				self.money += 2*bet[i]
+				retval += 1 + self.isDouble
+			else:
+				retval -= 1 + self.isDouble
 
-
+		return retval
 
 	def run_game(self):
 		self.reset_hands()
@@ -105,6 +109,8 @@ class Game:
 		if sum(cards_values[i] for i in self.playerCards[0]) == 21:
 			self.money += 2.5*bet[0]
 			return 1
+		if sum(cards_values[i] for i in self.dealerCards) == 21:
+			return -1
 
 		#Player Moves
 		first_move = True
@@ -128,6 +134,7 @@ class Game:
 				elif move == "S":
 					break
 				elif move == "D" and first_move:
+					self.isDouble = True
 					self.money -= bet[0]
 					bet[0] *= 2
 
@@ -149,25 +156,25 @@ class Game:
 				self.print_hands(False)
 
 				if self.sum_hands(hand) > 21:
-					return -1
+					if 1 == len(self.playerCards):
+						return -1
+					else:
+						break
 
 		#Dealer Moves
-		player_sum = self.sum_hands(self.playerCards[0]) 		#TODO handle for split (2 hands)
-		player_win = True
+		player_sums=[]
+		for i in range(len(self.playerCards)):
+			player_sums.append(self.sum_hands(self.playerCards[i]))
+
 		while True:
 			self.print_hands()
 			dealer_sum = self.sum_hands(self.dealerCards)
 			if 17 <= dealer_sum:
-				if dealer_sum > 21 or dealer_sum <= player_sum:
-					break
-				else:
-					player_win = False
-					break
+				break
 			else:
 				self.dealerCards.append(self.shoe.draw_card())
 
-		self.manageBet(dealer_sum, player_sum, move, bet)
-		return 2*int(player_win)-1	#return 1 if player won, -1 if lose
+		return self.manageBet(dealer_sum, player_sums, bet)
 
 def main():
 	game = Game()
