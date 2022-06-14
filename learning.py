@@ -5,7 +5,7 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 import pandas as pd
 
-action_dict = {3 :'H', 1 : 'S', 2 : 'P', 0 : 'D', 4 : 'X'}
+action_dict = {0 :'H', 1 : 'S', 2 : 'P', 3 : 'D', 4 : 'X'}
 
 class QAgent:
 
@@ -48,16 +48,18 @@ def main():
         States:
             (0 = Hard / 1 = Soft / 2 = Splitable , HandSum, DealerSum)
     '''
-    n_episodes = 1000000
+    n_learning = 100000 
+    n_test = 100000
     alpha = 0.01
-    gamma = 0.3
-    epsilon = 0.5
+    gamma = 0.7
+    epsilon = 0.6
 
     agent = QAgent(alpha, gamma)
     
     wins = 0
 
-    for i in tqdm(range(0,n_episodes)):
+    #Learning
+    for i in tqdm(range(0,n_learning)):
         #Reset the game to random state
         game_state, player_state, dealer_state = agent.Game.reset_hands()
         reward = 0
@@ -79,15 +81,40 @@ def main():
             player_state = next_player_state
             dealer_state = next_dealer_state
         
+        # if(reward > 0):
+        #     wins+= reward
+        # print(wins/(i+1))
+
+    # #Testing The Policy
+    for i in tqdm(range(0,n_test)):
+        #Reset the game to random state
+        game_state, player_state, dealer_state = agent.Game.reset_hands()
+        reward = 0
+        done = False
+        while (not done):
+            # action = {0 :'H', 1 : 'S', 2 : 'P', 3 : 'D', 4 : 'X'}
+            action = agent.get_action(game_state,player_state,dealer_state)
+
+            next_game_state, next_player_state, next_dealer_state, reward, done = agent.Game.step(action_dict[action])
+
+            game_state = next_game_state
+            player_state = next_player_state
+            dealer_state = next_dealer_state
+        
         if(reward > 0):
             wins+= reward
-        print(wins/(i+1))
+        # print(wins/(i+1))
+    print((wins)/(n_test))
 
-    # fig = plt.figure(figsize=(4,4))
-    # ax = fig.add_subplot(111, projection='3d')
-    # plt.show()
-    # table = np.max(agent.Q_table[0,:,:])
-    print(pd.DataFrame(np.argmax(agent.Q_table[0],axis=2)))
+
+    hard_policy = np.argmax(agent.Q_table[0],axis=2).astype(str)
+    hard_policy[hard_policy=='0'] = 'H'
+    hard_policy[hard_policy=='1'] = 'S'
+    hard_policy[hard_policy=='2'] = 'P'
+    hard_policy[hard_policy=='3'] = 'D'
+    hard_policy[hard_policy=='4'] = 'X'
+    hard_policy = hard_policy[0:22,:]
+    print(pd.DataFrame(hard_policy,columns=[0,'A',2,3,4,5,6,7,8,9,10,'J','Q','K']))
 
 if __name__ == '__main__':
 	main()
