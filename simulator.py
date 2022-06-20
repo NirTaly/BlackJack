@@ -47,6 +47,8 @@ class Game:
 			self.dealerCards.append(self.shoe.draw_card())
 
 		game_state = 0
+		if 1 in self.playerCards[0]:
+			game_state = 1
 		player_state, _ = self.sum_hands(self.playerCards[0])
 		dealer_state = self.dealerCards[0]
 		return game_state, player_state, dealer_state
@@ -84,11 +86,13 @@ class Game:
 		hand_sum = sum(cards_values[i] for i in hand)
 		soft = False
 
+		if 1 in hand:
+			soft = True
+
 		for i in range(hand.count(1)):
 			#Ace is soft?
 			if hand_sum > 21:
 				hand_sum -= 10
-				soft = True
 		return hand_sum, soft
 
 	def manageBet(self, dealer_sum, player_sums, bet) -> int:
@@ -216,42 +220,50 @@ class Game:
 
 		if action == "H":
 			hand.append(self.shoe.draw_card())
-			self.first_move = False
-		elif action == "D" and self.first_move:
+			# self.first_move = False
+		elif action == "D":
 			self.isDouble = True
-			self.first_move = False
+			# self.first_move = False
 			hand.append(self.shoe.draw_card())
 		elif action == "P" and self.first_move and hand[0] == hand[1]:
 			self.isSplit = True
 			self.playerCards.append([hand[1]])
 			self.playerCards[0].pop()
-			self.first_move = False
-			if(hand[0] == 1):
-				self.playerCards[0].append(self.shoe.draw_card())
-				self.playerCards[1].append(self.shoe.draw_card())
+			# self.first_move = False
+			self.playerCards[0].append(self.shoe.draw_card())
+			self.playerCards[1].append(self.shoe.draw_card())
 
-		elif ((action == "D" and not self.first_move) or action == "P" and (not self.first_move or not hand[0] == hand[1])):
+		elif (action == "P" and (not self.first_move or not hand[0] == hand[1])):
 			reward = -20
-			done = False
+			done = True
+			player_state, game_state = self.sum_hands(hand)
+			dealer_state = self.dealerCards[0]
+
+			return game_state, player_state, dealer_state, reward, done
 
 		elif(action == "X"):
 			reward = -0.5
 			done = True
 
-		if (action == "S" or action == "D" or (action == "P" and self.first_move and hand[0] == hand[1] and hand[0][0] == 1)):
-			reward, done = self.dealerMoves()
-			self.splitHand = 1
-
 		sumHand, _ = self.sum_hands(hand)
 		if (sumHand > 21):
-			if 1 == len(self.playerCards):
+			if 1 == len(self.playerCards) and action == "D":
+				reward = -2
+				done = True
+			elif 1 == len(self.playerCards):
 				reward = -1
 				done = True
 			elif (self.splitHand == 0):
 				self.splitHand = 1
+				hand = self.playerCards[self.splitHand]
 			else:
 				reward, done = self.dealerMoves()
 
+		elif (action == "S" or action == "D" or (action == "P" and self.isSplit)):
+			reward, done = self.dealerMoves()
+			self.splitHand = 1
+
+		self.first_move = False
 		player_state, game_state = self.sum_hands(hand)
 		dealer_state = self.dealerCards[0]
 
