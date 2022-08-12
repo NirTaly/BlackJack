@@ -93,7 +93,7 @@ def validation(alpha):
     best alpha = 0.08
     """
     n_learning = 5000
-    gammas = np.arange(0.001, 1, 0.005)
+    gammas = np.arange(0.001, 1, 0.01)
 
     best_gamma = gammas[0]
     best_wins = 0
@@ -127,14 +127,12 @@ def main():
 
     mp_pool = mp.Pool(os.cpu_count())
     results = mp_pool.imap_unordered(validation, alphas)
-    best_rewards, best_gamma, best_alpha = validation(0.3)
+    # best_rewards, best_gamma, best_alpha = validation(0.3)
 
     best_result = max(results)
     print (best_result)
     best_gamma = best_result[1]
     best_alpha = best_result[2]
-    # best_gamma = 0.001
-    # best_alpha = 0.08
     # Training policy
     agent = QAgent(best_alpha, best_gamma)
     agent.train(n_train)
