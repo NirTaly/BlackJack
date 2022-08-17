@@ -13,13 +13,11 @@ epsilon = 0.3
 def run_loop(agent):
     game_state, player_state, dealer_state = agent.Game.reset_hands()
     done = False
+    first_decision = True
+    agent.update_epsilon()
     while not done:
-        if random.uniform(0, 1) < epsilon:
-            # Random Action
-            # action = {0 :'H', 1 : 'S', 2 : 'P', 3 : 'D', 4 : 'X'}
-            action = int(random.randint(0, 3))
-        else:
-            action = agent.get_action(game_state, player_state, dealer_state)
+        # action = {0 :'H', 1 : 'S', 2 : 'P', 3 : 'D', 4 : 'X'}
+        action = agent.get_action(game_state,player_state,dealer_state,first_decision)
 
         next_game_state, next_player_state, next_dealer_state, reward, done = agent.Game.step(
             action_dict[action])
@@ -30,11 +28,12 @@ def run_loop(agent):
         game_state = next_game_state
         player_state = next_player_state
         dealer_state = next_dealer_state
+        first_decision = False
     return reward
 
 class QAgent:
 
-    def __init__(self, alpha, gamma):
+    def __init__(self, alpha, gamma, epsilon):
         # The BJ Simulator
         self.Game = sym.Game()
 
@@ -44,10 +43,23 @@ class QAgent:
         # self.Q_table[:,:,:,0:5] = 3
         self.alpha = alpha
         self.gamma = gamma
-        self.epislon = 0.3
+        self.epsilon = epsilon
 
-    def get_action(self, game_state, player_state, dealer_state):
-        return np.argmax(self.Q_table[int(game_state), player_state, dealer_state])
+    def update_epsilon(self):
+        self.epsilon *= 0.999
+
+    def get_action(self, game_state, player_state, dealer_state,first_decision, explore=True):
+        if(random.uniform(0, 1) < self.epsilon and explore):
+            #Random Action - Exploring
+            if first_decision:
+                return int(random.randint(0, 3))
+            else:
+                return int(random.randint(0,1))
+        else:
+            if first_decision:
+                return np.argmax(self.Q_table[int(game_state), player_state, dealer_state])
+            else:
+                return np.argmax(self.Q_table[int(game_state), player_state, dealer_state][0:2])
 
     def update_parameters(self, game_state, player_state, dealer_state, action, reward, next_game_state,
                           next_player_state, next_dealer_state):
@@ -71,9 +83,10 @@ class QAgent:
             game_state, player_state, dealer_state = self.Game.reset_hands()
             reward = 0
             done = False
+            first_decision = True
             while not done:
                 # action = {0 :'H', 1 : 'S', 2 : 'P', 3 : 'D', 4 : 'X'}
-                action = self.get_action(game_state, player_state, dealer_state)
+                action = self.get_action(game_state, player_state, dealer_state,first_decision,explore=False)
                 next_game_state, next_player_state, next_dealer_state, reward, done = self.Game.step(
                     action_dict[action])
                 self.update_parameters(game_state, player_state, dealer_state, action, reward, next_game_state,
@@ -82,6 +95,7 @@ class QAgent:
                 game_state = next_game_state
                 player_state = next_player_state
                 dealer_state = next_dealer_state
+                first_decision = False
 
             if reward > 0:
                 wins += reward
@@ -92,15 +106,17 @@ def validation(alpha):
     best gamma = 0.001
     best alpha = 0.08
     """
-    n_learning = 5000
+    n_learning = 20000
     gammas = np.arange(0.001, 1, 0.01)
 
     best_gamma = gammas[0]
     best_wins = 0
     for gamma in gammas:
-        agent = QAgent(alpha, gamma)
+        agent = QAgent(alpha, gamma,0.5)
         wins = 0
-        for _ in tqdm(range(0, n_learning)):
+        for _ in tqdm(range(0, n_learning//2)):
+            run_loop(agent)
+        for _ in tqdm(range(0, n_learning//2)):
             reward = run_loop(agent)
 
             wins += reward > 0
@@ -121,20 +137,20 @@ def main():
         States:
             (0 = Hard / 1 = Soft / 2 = Splittable , HandSum, DealerSum)
     """
-    n_train = 100000
-    n_test = 100000
+    n_train = 2000000
+    n_test = 30000
     alphas = np.arange(0.0001, 2, 0.005)
 
-    mp_pool = mp.Pool(os.cpu_count())
-    results = mp_pool.imap_unordered(validation, alphas)
+    # mp_pool = mp.Pool(os.cpu_count())
+    # results = mp_pool.imap_unordered(validation, alphas)
+    # best_result = max(results)
     # best_rewards, best_gamma, best_alpha = validation(0.3)
-
-    best_result = max(results)
+    best_result = [1636,0.451,0.001]
     print (best_result)
     best_gamma = best_result[1]
     best_alpha = best_result[2]
     # Training policy
-    agent = QAgent(best_alpha, best_gamma)
+    agent = QAgent(best_alpha, best_gamma,0.6)
     agent.train(n_train)
     wins = agent.test(n_test)
 

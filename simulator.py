@@ -78,7 +78,7 @@ class Game:
 
     def sum_hands(self, hand):
         hand_sum = sum(cards_values[i] for i in hand)
-        soft = (hand.count(1) == 1)
+        soft = (hand.count(1) == 1 and hand_sum <=21)
 
         for i in range(hand.count(1)):
             if hand_sum > 21:
@@ -108,6 +108,8 @@ class Game:
                 reward += 1 + self.isDouble
             elif dealer_sum < player_sums[i] <= 21:
                 reward += 1 + self.isDouble
+            elif player_sums[i] == dealer_sum and player_sums[i] <= 21:
+                reward = 0
             else:
                 reward -= 1 + self.isDouble
 
@@ -209,7 +211,7 @@ class Game:
             self.playerCards[0].append(self.shoe.draw_card())
             self.playerCards[1].append(self.shoe.draw_card())
 
-        elif (action == "P" and (not self.first_move or not hand[0] == hand[1])) or (action == "D" and not self.first_move):
+        elif (action == "P" and (not self.first_move or not hand[0] == hand[1])):
             reward = -100000000
             done = True
             player_state, game_state = self.sum_hands(hand)
