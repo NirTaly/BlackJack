@@ -204,19 +204,19 @@ class Game:
         elif action == "D":
             self.isDouble = True
             hand.append(self.shoe.draw_card())
-        elif action == "P" and self.first_move and hand[0] == hand[1]:
+        elif action == "P":
             self.isSplit = True
             self.playerCards.append([hand[1]])
             self.playerCards[0].pop()
             self.playerCards[0].append(self.shoe.draw_card())
             self.playerCards[1].append(self.shoe.draw_card())
 
-        elif (action == "P" and (not self.first_move or not hand[0] == hand[1])):
-            reward = -100000000
-            done = True
-            player_state, game_state = self.sum_hands(hand)
-            dealer_state = self.dealerCards[0]
-            return game_state, player_state, dealer_state, reward, done
+        # elif (action == "P" and (not self.first_move or not hand[0] == hand[1])):
+        #     reward = -100000000
+        #     done = True
+        #     player_state, game_state = self.sum_hands(hand)
+        #     dealer_state = self.dealerCards[0]
+        #     return game_state, player_state, dealer_state, reward, done
 
         elif action == "X":
             reward = -0.5
@@ -235,7 +235,6 @@ class Game:
                 hand = self.playerCards[self.currHand]
             else:
                 reward, done = self.dealerMoves()
-
         elif action == "S" or action == "D" or (action == "P" and self.isSplit):
             reward, done = self.dealerMoves()
             self.currHand = 1

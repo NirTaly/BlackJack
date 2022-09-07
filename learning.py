@@ -7,7 +7,7 @@ from tqdm import tqdm
 import pandas as pd
 import multiprocessing as mp
 
-action_dict = {0: 'H', 1: 'S', 2: 'P', 3: 'D', 4: 'X'}
+action_dict = {0: 'H', 1: 'S', 2: 'D', 3: 'P', 4: 'X'}
 epsilon = 0.3
 
 def run_loop(agent):
@@ -39,7 +39,7 @@ class QAgent:
 
         #Init the table with q_values: HARD(18X10) X SOFT(9X10) X SPLIT(8X10) X ACTION(5)
         # self.Q_table = np.zeros((2,21,13,5))
-        self.Q_table = np.zeros((2,33,14,4)) #33 for all sums that are reachable, 14, for 1-13
+        self.Q_table = np.zeros((2,33,14,3)) #33 for all sums that are reachable, 14, for 1-13
         # self.Q_table[:,:,:,0:5] = 3
         self.alpha = alpha
         self.gamma = gamma
@@ -48,16 +48,22 @@ class QAgent:
     def update_epsilon(self):
         self.epsilon *= 0.999
 
-    def get_action(self, game_state, player_state, dealer_state,first_decision, explore=True):
+    def get_action(self, game_state, player_state, dealer_state, explore=True):
         if(random.uniform(0, 1) < self.epsilon and explore):
             #Random Action - Exploring
-            if first_decision:
-                return int(random.randint(0, 3))
+            if self.Game.first_move:
+                # if self.Game.playerCards[0][0] == self.Game.playerCards[0][1]:
+                #     return int(random.randint(0, 2))
+                # else:
+                return int(random.randint(0,2))
             else:
                 return int(random.randint(0,1))
         else:
-            if first_decision:
-                return np.argmax(self.Q_table[int(game_state), player_state, dealer_state])
+            if self.Game.first_move:
+                # if self.Game.playerCards[0][0] == self.Game.playerCards[0][1]:
+                #     return np.argmax(self.Q_table[int(game_state), player_state, dealer_state][0:3])
+                # else:
+                return np.argmax(self.Q_table[int(game_state), player_state, dealer_state][0:3])
             else:
                 return np.argmax(self.Q_table[int(game_state), player_state, dealer_state][0:2])
 
@@ -85,8 +91,8 @@ class QAgent:
             done = False
             first_decision = True
             while not done:
-                # action = {0 :'H', 1 : 'S', 2 : 'P', 3 : 'D', 4 : 'X'}
-                action = self.get_action(game_state, player_state, dealer_state,first_decision,explore=False)
+                # action = {0 :'H', 1 : 'S', 2 : 'D', 3 : 'P', 4 : 'X'}
+                action = self.get_action(game_state, player_state, dealer_state,explore=False)
                 next_game_state, next_player_state, next_dealer_state, reward, done = self.Game.step(
                     action_dict[action])
                 self.update_parameters(game_state, player_state, dealer_state, action, reward, next_game_state,
@@ -145,20 +151,20 @@ def main():
     # results = mp_pool.imap_unordered(validation, alphas)
     # best_result = max(results)
     # best_rewards, best_gamma, best_alpha = validation(0.3)
-    best_result = [1636,0.451,0.001]
+    best_result = [1636,0.1,0.001]
     print (best_result)
     best_gamma = best_result[1]
     best_alpha = best_result[2]
     # Training policy
-    agent = QAgent(best_alpha, best_gamma,0.6)
+    agent = QAgent(best_alpha, best_gamma,0.9)
     agent.train(n_train)
     wins = agent.test(n_test)
 
     hard_policy = np.argmax(agent.Q_table[0], axis=2).astype(str)
     hard_policy[hard_policy == '0'] = 'H'
     hard_policy[hard_policy == '1'] = 'S'
-    hard_policy[hard_policy == '2'] = 'P'
-    hard_policy[hard_policy == '3'] = 'D'
+    hard_policy[hard_policy == '2'] = 'D'
+    hard_policy[hard_policy == '3'] = 'P'
     hard_policy[hard_policy == '4'] = 'X'
     hard_policy = hard_policy[4:22, 1:]
     print(pd.DataFrame(hard_policy, columns=['A', 2, 3, 4, 5, 6, 7, 8, 9, 10, 'J', 'Q', 'K'], index=list(range(4, 22))))
@@ -167,8 +173,8 @@ def main():
     soft_policy = np.argmax(agent.Q_table[1], axis=2).astype(str)
     soft_policy[soft_policy == '0'] = 'H'
     soft_policy[soft_policy == '1'] = 'S'
-    soft_policy[soft_policy == '2'] = 'P'
-    soft_policy[soft_policy == '3'] = 'D'
+    soft_policy[soft_policy == '2'] = 'D'
+    soft_policy[soft_policy == '3'] = 'P'
     soft_policy[soft_policy == '4'] = 'X'
     soft_policy = soft_policy[13:22, 1:]
     print(
