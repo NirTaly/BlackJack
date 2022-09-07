@@ -1,3 +1,4 @@
+import math
 import os
 import itertools
 import simulator as sym
@@ -7,16 +8,14 @@ from tqdm import tqdm
 import pandas as pd
 import multiprocessing as mp
 
-epsilon = 0.3
 action_dict = {0 :'S', 1 : 'H', 2 : 'X', 3 : 'D', 4 : 'P'}
 
 def run_loop(agent):
     game_state, player_state = agent.Game.reset_hands()
     done = False
-    first_decision = True
     agent.update_epsilon()
     while not done:
-        action = agent.get_action(game_state,player_state,agent.Game.dealer_state,first_decision)
+        action = agent.get_action(game_state,player_state,agent.Game.dealer_state)
 
         next_game_state, next_player_state, reward, done = agent.Game.step(action)
 
@@ -25,7 +24,6 @@ def run_loop(agent):
 
         game_state = next_game_state
         player_state = next_player_state
-        first_decision = False
     return reward
 
 def CreateQTable(player_state_tuple,legal_actions):
@@ -35,7 +33,7 @@ def CreateQTable(player_state_tuple,legal_actions):
     for key in tuple_player_dealer_list:
         Q_table[key] = dict.fromkeys(legal_actions, 0)
     # add dummy for burned states
-    Q_table["BURNED"] = -999999999                                                                                      # TODO check burned value
+    Q_table["BURNED"] = -1                                                                                         # TODO check burned value
     return Q_table
 
 class QAgent:
@@ -109,13 +107,12 @@ class QAgent:
             run_loop(self)
 
     def test(self, n_test):
-        wins = 0
+        rewards = 0
         for _ in tqdm(range(0, n_test)):
             # Reset the game to random state
             game_state, player_state = self.Game.reset_hands()
             reward = 0
             done = False
-            first_decision = True
             while not done:
                 # action = {0 :'H', 1 : 'S', 2 : 'D', 3 : 'P', 4 : 'X'}
                 action = self.get_action(game_state, player_state, self.Game.dealer_state,explore=False)
@@ -125,36 +122,46 @@ class QAgent:
 
                 game_state = next_game_state
                 player_state = next_player_state
-                first_decision = False
 
-            if reward > 0:
-                wins += reward
-        return wins
+            rewards += reward
+        return rewards
 
 def validation(alpha):
     """
     best gamma = 0.001
     best alpha = 0.08
     """
-    n_learning = 20000
+    n_learning = 2000000
     gammas = np.arange(0.001, 1, 0.01)
 
     best_gamma = gammas[0]
-    best_wins = 0
+    best_reward = -math.inf
     for gamma in gammas:
-        agent = QAgent(alpha, gamma,0.5)
-        wins = 0
-        for _ in tqdm(range(0, n_learning//2)):
+        agent = QAgent(alpha, gamma, epsilon=0.6)
+        rewards = 0
+        for _ in tqdm(range(0, (9*n_learning)//10)):
             run_loop(agent)
-        for _ in tqdm(range(0, n_learning//2)):
+        for _ in tqdm(range(0, n_learning//10)):
             reward = run_loop(agent)
 
-            wins += reward > 0
-        if wins > best_wins:
+            rewards += reward
+        if rewards > best_reward:
             best_gamma = gamma
-            best_wins = wins
+            best_reward = rewards
 
-    return best_wins, best_gamma, alpha
+    return best_reward, best_gamma, alpha
+
+def CreatePolicyTable(policy_Qtable):
+    policy_table = np.array(list(policy_Qtable.items()), dtype=dict)
+    policy_table = np.delete(policy_table, len(policy_table) - 1, axis=0)
+    for i, _ in enumerate(policy_table):
+        policy_table[i][1] = max(policy_table[i][1], key=policy_table[i][1].get)
+
+    retval = np.empty((22, 12), dtype=str)
+    for state in policy_table:
+        retval[state[0][0]][state[0][1]] = state[1]
+
+    return retval
 
 def main():
     """ Rewards:
@@ -167,30 +174,42 @@ def main():
         States:
             (0 = Hard / 1 = Soft / 2 = Splittable , HandSum, DealerSum)
     """
-    n_train = 2000000
-    n_test = 30000
-    alphas = np.arange(0.0001, 2, 0.005)
+    n_train = 20000000
+    n_test = 3000000
 
-    # mp_pool = mp.Pool(os.cpu_count())
-    # results = mp_pool.imap_unordered(validation, alphas)
-    # best_result = max(results)
+    alphas = np.arange(0.0001, 2, 0.005)
+    mp_pool = mp.Pool(os.cpu_count())
+    results = mp_pool.imap_unordered(validation, alphas)
+    best_result = max(results)
+
     # best_rewards, best_gamma, best_alpha = validation(0.3)
-    best_result = [1636,0.1,0.001]
-    print (best_result)
+    # best_result = [1636,0.1,0.001]
+
+    print(best_result)
     best_gamma = best_result[1]
     best_alpha = best_result[2]
+
     # Training policy
-    agent = QAgent(best_alpha, best_gamma,0.9)
+    agent = QAgent(best_alpha, best_gamma,0.6)
     agent.train(n_train)
     wins = agent.test(n_test)
 
-    hard_policy = np.argmax(agent.Q_table[0], axis=2).astype(str)
-    print(pd.DataFrame(hard_policy, columns=[2, 3, 4, 5, 6, 7, 8, 9, 10, 'J', 'Q', 'K', 'A'], index=list(range(4, 22))))
+    print('\t\t\tHard')
+    hard_policy = CreatePolicyTable(agent.Q_table[0])
+    print(pd.DataFrame(hard_policy[4:,2:], columns=[2, 3, 4, 5, 6, 7, 8, 9, 10, 'A'], index=list(range(4, 22))))
 
     print()
-    soft_policy = np.argmax(agent.Q_table[1], axis=2).astype(str)
-    print(
-        pd.DataFrame(soft_policy, columns=[2, 3, 4, 5, 6, 7, 8, 9, 10, 'J', 'Q', 'K', 'A'], index=list(range(13, 22))))
+
+    print('\t\t\tSoft')
+    soft_policy = CreatePolicyTable(agent.Q_table[1])
+    print(pd.DataFrame(soft_policy[13:, 2:], columns=[2, 3, 4, 5, 6, 7, 8, 9, 10, 'A'], index=list(range(13, 22))))
+
+    print()
+
+    print('\t\t\tSplit')
+    split_policy = CreatePolicyTable(agent.Q_table[2])
+    print(pd.DataFrame(split_policy[2:12, 2:], columns=[2, 3, 4, 5, 6, 7, 8, 9, 10, 'A'], index=list(range(2, 12))))
+    # , rows=['2,2', '3,3', '4,4', '5,5', '6,6', '7,7', '8,8', '9,9', '10,10', 'A,A']
 
     print(wins / n_test)
 
