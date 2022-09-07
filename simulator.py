@@ -42,12 +42,16 @@ class Game:
             self.playerCards[0].append(self.shoe.draw_card())
             self.dealerCards.append(self.shoe.draw_card())
 
-        game_state = 0
-        if 1 in self.playerCards[0]:
+        if (self.playerCards[0][0] == self.playerCards[0][1]):
+            game_state = 2
+        elif (self.playerCards[0].count(1) == 1):
             game_state = 1
+        else:
+            game_state = 0
+
         player_state, _ = self.sum_hands(self.playerCards[0])
-        dealer_state = self.dealerCards[0]
-        return game_state, player_state, dealer_state
+        self.dealer_state = cards_values[self.dealerCards[0]]
+        return game_state, player_state
 
     def print_hands(self, showDealerCard=True):
         dealer_str = "Dealer's Cards: "
@@ -78,12 +82,12 @@ class Game:
 
     def sum_hands(self, hand):
         hand_sum = sum(cards_values[i] for i in hand)
-        soft = (hand.count(1) == 1 and hand_sum <=21)
+        game_state = 1 if (hand.count(1) == 1 and hand_sum <=21) else 0
 
         for i in range(hand.count(1)):
             if hand_sum > 21:
                 hand_sum -= 10
-        return hand_sum, soft
+        return hand_sum, game_state
 
     def manageBet(self, dealer_sum, player_sums, bet) -> int:
         retval = 0
@@ -241,9 +245,8 @@ class Game:
 
         self.first_move = False
         player_state, game_state = self.sum_hands(hand)
-        dealer_state = self.dealerCards[0]
 
-        return game_state, player_state, dealer_state, reward, done
+        return game_state, player_state, reward, done
 
     def dealerMoves(self):
         # Dealer Moves
