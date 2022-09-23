@@ -29,6 +29,19 @@ class Game:
         self.shoe = Shoe()
         self.reset_hands()
 
+    def __handRewadHandler(self, dealer_sum, player_sum):
+        reward = 0
+        if dealer_sum > 21:
+            reward += 1 + self.isDouble
+        elif dealer_sum < player_sum <= 21:
+            reward += 1 + self.isDouble
+        elif player_sum == dealer_sum and player_sum <= 21:
+            reward = 0
+        else:
+            reward -= 1 + self.isDouble
+
+        return reward
+
     def reset_hands(self):
         self.playerCards = [[]]
         self.dealerCards = []
@@ -108,14 +121,7 @@ class Game:
     def rewardHandler(self, dealer_sum, player_sums) -> int:
         reward = 0
         for i, _ in enumerate(self.playerCards):
-            if dealer_sum > 21:
-                reward += 1 + self.isDouble
-            elif dealer_sum < player_sums[i] <= 21:
-                reward += 1 + self.isDouble
-            elif player_sums[i] == dealer_sum and player_sums[i] <= 21:
-                reward = 0
-            else:
-                reward -= 1 + self.isDouble
+            reward += self.__handRewadHandler(dealer_sum, player_sums[i])
 
         return reward
 
@@ -153,7 +159,7 @@ class Game:
                 hand = self.playerCards[self.currHand]
             else:
                 reward, done = self.dealerMoves()
-        elif action == "S" or action == "D" or action == "P":
+        elif action == "S" or action == "D" or (action == "P" and hand[0] == 1):
             reward, done = self.dealerMoves()
             self.currHand = 1
 
@@ -164,7 +170,7 @@ class Game:
 
     def dealerMoves(self):
         # Dealer Moves
-        if self.currHand == 0 and self.isSplit:
+        if self.currHand == 0 and self.isSplit and self.playerCards[0][0] != 1:
             return 0, False
         player_sums = []
         for i in range(len(self.playerCards)):
@@ -182,16 +188,16 @@ class Game:
         return self.rewardHandler(dealer_sum, player_sums), True
 
 # def main():
-# 	game = Game()
-# 	win_diff=0
-# 	total=0
-# 	print("your current budget is ", game.money)
-# 	while (game.money > 0 and input("want to start new game? y/n\n") == "y"):
-# 		win_diff += game.run_game()
-# 		total+=1
-# 		print("win/lose = ", win_diff, " total games = ", total)
-# 		print("your current budget is ", game.money)
-
-
+#     game = Game()
+#     win_diff=0
+#     total=0
+#     print("your current budget is ", game.money)
+#     while (game.money > 0 and input("want to start new game? y/n\n") == "y"):
+#         win_diff += game.run_game()
+#         total+=1
+#         print("win/lose = ", win_diff, " total games = ", total)
+#         print("your current budget is ", game.money)
+#
+#
 # if __name__ == '__main__':
-# 	main()
+#     main()
