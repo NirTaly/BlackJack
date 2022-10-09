@@ -33,7 +33,7 @@ def CreateQTable(player_state_tuple,legal_actions):
     for key in tuple_player_dealer_list:
         Q_table[key] = dict.fromkeys(legal_actions, 0)
     # add dummy for burned states
-    Q_table["BURNED"] = -1                                                                                         # TODO check burned value
+    Q_table["BURNED"] = -1
     return Q_table
 
 class QAgent:
@@ -54,7 +54,7 @@ class QAgent:
         self.epsilon = epsilon
 
     def update_epsilon(self):
-        self.epsilon *= 0.999
+        self.epsilon *= 0.99999
 
     def get_action(self, game_state, player_state, dealer_state, explore=True):
         if(random.uniform(0, 1) < self.epsilon and explore):
@@ -65,7 +65,7 @@ class QAgent:
                 else:
                     return action_dict[random.randint(0,3)]
             else:
-                return action_dict[random.randint(0,2)]
+                return action_dict[random.randint(0,1)]
         else:
             if self.Game.first_move:
                 if game_state == 2:
@@ -77,9 +77,8 @@ class QAgent:
                 return max(self.Q_table[game_state][(player_state, dealer_state)], key=self.Q_table[game_state][(player_state, dealer_state)].get)
                 # return np.argmax(self.Q_table[game_state, player_state, dealer_state][0:3])
             else:
-                return max(dict(itertools.islice(self.Q_table[game_state][(player_state, dealer_state)].items(), 3)),
-                    key=dict(itertools.islice(self.Q_table[game_state][(player_state, dealer_state)].items(), 3)).get)
-                # return np.argmax(self.Q_table[game_state, player_state, dealer_state][0:2])
+                return max(dict(itertools.islice(self.Q_table[game_state][(player_state, dealer_state)].items(), 2)),
+                    key=dict(itertools.islice(self.Q_table[game_state][(player_state, dealer_state)].items(), 2)).get)
 
     def update_parameters(self, game_state, player_state, dealer_state, action, reward, next_game_state,
                           next_player_state):
@@ -174,23 +173,24 @@ def main():
         States:
             (0 = Hard / 1 = Soft / 2 = Splittable , HandSum, DealerSum)
     """
-    n_train = 20000000
-    n_test = 3000000
+    n_train = 2000000
+    n_test = 300000
 
-    alphas = np.arange(0.0001, 2, 0.005)
-    mp_pool = mp.Pool(os.cpu_count())
-    results = mp_pool.imap_unordered(validation, alphas)
-    best_result = max(results)
+    # alphas = np.arange(0.0001, 2, 0.005)
+    # mp_pool = mp.Pool(os.cpu_count())
+    # results = mp_pool.imap_unordered(validation, alphas)
+    # best_result = max(results)
 
     # best_rewards, best_gamma, best_alpha = validation(0.3)
-    # best_result = [1636,0.1,0.001]
+    best_result = [1636,0.6,0.005, 0.6]
 
     print(best_result)
     best_gamma = best_result[1]
     best_alpha = best_result[2]
+    best_epsilon = best_result[3]
 
     # Training policy
-    agent = QAgent(best_alpha, best_gamma,0.6)
+    agent = QAgent(best_alpha, best_gamma, best_epsilon)
     agent.train(n_train)
     wins = agent.test(n_test)
 
