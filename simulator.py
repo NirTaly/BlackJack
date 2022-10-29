@@ -31,7 +31,9 @@ class Game:
 
     def __handRewadHandler(self, dealer_sum, player_sum):
         reward = 0
-        if dealer_sum > 21:
+        if player_sum > 21:
+            reward -= 1 + self.isDouble
+        elif dealer_sum > 21:
             reward += 1 + self.isDouble
         elif dealer_sum < player_sum <= 21:
             reward += 1 + self.isDouble
@@ -118,12 +120,14 @@ class Game:
 
         return retval
 
-    def rewardHandler(self, dealer_sum, player_sums) -> int:
-        reward = 0
-        for i, _ in enumerate(self.playerCards):
-            reward += self.__handRewadHandler(dealer_sum, player_sums[i])
+    def rewardHandler(self, dealer_sum, player_sums):
+        reward1 = self.__handRewadHandler(dealer_sum, player_sums[0])
+        if len(player_sums) == 2:
+            reward2 = self.__handRewadHandler(dealer_sum, player_sums[1])
+            reward_tuple = (reward1, reward2)
+            return reward_tuple
 
-        return reward
+        return reward1
 
     def step(self, action):
         hand = self.playerCards[self.currHand]
@@ -146,37 +150,25 @@ class Game:
             reward = -0.5
             done = True
 
-        sumHand, _ = self.sum_hands(hand)
-        if sumHand > 21:
-            if 1 == len(self.playerCards) and action == "D":
-                reward = -2
-                done = True
-            elif 1 == len(self.playerCards):
-                reward = -1
-                done = True
-            elif self.currHand == 0:
-                self.currHand = 1
-                hand = self.playerCards[self.currHand]
-            else:
-                reward, done = self.dealerMoves()
-        elif action == "S" or action == "D" or (action == "P" and hand[0] == 1):
-            reward, done = self.dealerMoves()
+        sumHand, game_state = self.sum_hands(hand)
+        # if sumHand > 21 and :
+        #     if self.currHand == 0:
+        #         self.currHand = 1
+        #         done = True
+        #         # hand = self.playerCards[self.currHand]
+        #     elif :
+        #         reward, done = self.endGame()
+        if sumHand > 21 or action == "S" or action == "D" or (action == "P" and hand[0] == 1):
+            reward, done = self.endGame()
             self.currHand = 1
 
         self.first_move = False
-        player_state, game_state = self.sum_hands(hand)
+        # player_state, game_state = self.sum_hands(hand)
 
-        return game_state, player_state, reward, done
+        return game_state, sumHand, reward, done
 
     def dealerMoves(self):
         # Dealer Moves
-        if self.currHand == 0 and self.isSplit and self.playerCards[0][0] != 1:
-            return 0, False
-        player_sums = []
-        for i in range(len(self.playerCards)):
-            player_sum, _ = self.sum_hands(self.playerCards[i])
-            player_sums.append(player_sum)
-
         while True:
             # self.print_hands()
             dealer_sum, _ = self.sum_hands(self.dealerCards)
@@ -184,6 +176,23 @@ class Game:
                 break
             else:
                 self.dealerCards.append(self.shoe.draw_card())
+        return dealer_sum
+
+    def endGame(self):
+        if self.currHand == 0 and self.isSplit and self.playerCards[0][0] != 1:
+            return 0, True
+        player_sums = []
+        not_all_hands_burned = True
+        for i in range(len(self.playerCards)):
+            player_sum, _ = self.sum_hands(self.playerCards[i])
+            player_sums.append(player_sum)
+            if player_sum <= 21:
+                not_all_hands_burned = False
+
+        # Dealer Moves
+        dealer_sum, _ = self.sum_hands(self.dealerCards)
+        if not not_all_hands_burned:
+            dealer_sum = self.dealerMoves()
 
         return self.rewardHandler(dealer_sum, player_sums), True
 
