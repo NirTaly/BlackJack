@@ -7,7 +7,7 @@ cards_values = {1: 11, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8, 9: 9, 10: 10, 1
 
 
 class Shoe:
-    def __init__(self, n=8):
+    def __init__(self, n=6):
         self.n = n
         self.cards = []
         self.rebuild()
@@ -27,7 +27,7 @@ class Game:
     def __init__(self, money=100):
         self.money = money
         self.shoe = Shoe()
-        self.reset_hands()
+        # self.reset_hands()
 
     def __handRewadHandler(self, dealer_sum, player_sum):
         reward = 0
