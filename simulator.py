@@ -27,7 +27,6 @@ class Game:
     def __init__(self, money=100):
         self.money = money
         self.shoe = Shoe()
-        # self.reset_hands()
 
     def __handRewadHandler(self, dealer_sum, player_sum):
         reward = 0
@@ -151,26 +150,18 @@ class Game:
             done = True
 
         sumHand, game_state = self.sum_hands(hand)
-        # if sumHand > 21 and :
-        #     if self.currHand == 0:
-        #         self.currHand = 1
-        #         done = True
-        #         # hand = self.playerCards[self.currHand]
-        #     elif :
-        #         reward, done = self.endGame()
+
         if sumHand > 21 or action == "S" or action == "D" or (action == "P" and hand[0] == 1):
             reward, done = self.endGame()
             self.currHand = 1
 
         self.first_move = False
-        # player_state, game_state = self.sum_hands(hand)
 
         return game_state, sumHand, reward, done
 
     def dealerMoves(self):
         # Dealer Moves
         while True:
-            # self.print_hands()
             dealer_sum, _ = self.sum_hands(self.dealerCards)
             if 17 <= dealer_sum:
                 break

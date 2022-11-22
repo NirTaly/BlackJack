@@ -23,23 +23,24 @@ def run_loop(agent, explore):
 
             next_game_state, next_player_state, reward, done = agent.Game.step(action)
 
-            if done and agent.Game.isSplit:
-                last_split_hands_parameters.append(
-                    [game_state, player_state, action, next_game_state, next_player_state])
-            else:
-                agent.update_parameters(game_state, player_state, agent.Game.dealer_state, action, reward,
-                                        next_game_state, next_player_state)
-
-            if action == "P":
-                if agent.Game.playerCards[0][0] == 1:
-                    next_player_state, next_game_state = agent.Game.sum_hands(agent.Game.playerCards[1])
+            if explore:
+                if done and agent.Game.isSplit:
                     last_split_hands_parameters.append(
                         [game_state, player_state, action, next_game_state, next_player_state])
-                    break
                 else:
-                    sec_hand_player_state, sec_hand_game_state = agent.Game.sum_hands(agent.Game.playerCards[1])
                     agent.update_parameters(game_state, player_state, agent.Game.dealer_state, action, reward,
-                                            sec_hand_game_state, sec_hand_player_state)
+                                            next_game_state, next_player_state)
+
+                if action == "P":
+                    if agent.Game.playerCards[0][0] == 1:
+                        next_player_state, next_game_state = agent.Game.sum_hands(agent.Game.playerCards[1])
+                        last_split_hands_parameters.append(
+                            [game_state, player_state, action, next_game_state, next_player_state])
+                        break
+                    else:
+                        sec_hand_player_state, sec_hand_game_state = agent.Game.sum_hands(agent.Game.playerCards[1])
+                        agent.update_parameters(game_state, player_state, agent.Game.dealer_state, action, reward,
+                                                sec_hand_game_state, sec_hand_player_state)
 
             game_state = next_game_state
             player_state = next_player_state
@@ -53,10 +54,11 @@ def run_loop(agent, explore):
             rewards += reward
 
     if agent.Game.isSplit:
-        for i in range(2):
-            game_state, player_state, action, next_game_state, next_player_state = last_split_hands_parameters[i]
-            agent.update_parameters(game_state, player_state, agent.Game.dealer_state, action, reward[i],
-                                    next_game_state, next_player_state)
+        if explore:
+            for i in range(2):
+                game_state, player_state, action, next_game_state, next_player_state = last_split_hands_parameters[i]
+                agent.update_parameters(game_state, player_state, agent.Game.dealer_state, action, reward[i],
+                                        next_game_state, next_player_state)
         rewards = sum(reward)
     return rewards
 
@@ -68,7 +70,7 @@ def CreateQTable(player_state_tuple, legal_actions):
     for key in tuple_player_dealer_list:
         Q_table[key] = dict.fromkeys(legal_actions, 0)
     # add dummy for burned states
-    Q_table["BURNED"] = -1
+    Q_table["BURNED"] = 0               #TODO CHECK
     return Q_table
 
 
@@ -98,7 +100,8 @@ class QAgent:
         return player_state
 
     def update_epsilon(self):
-        self.epsilon *= 0.999999
+        if self.epsilon > 0.05:
+            self.epsilon *= 0.999999
 
     def get_action(self, game_state, player_state, dealer_state, explore=True):
         if (random.uniform(0, 1) < self.epsilon and explore):
@@ -147,21 +150,8 @@ class QAgent:
     def test(self, n_test):
         wins = 0
         for _ in tqdm(range(0, n_test)):
-            # # Reset the game to random state
-            # game_state, player_state = self.Game.reset_hands()
-            # reward = 0
-            # done = False
-            # while not done:
-            #     # action = {0 :'H', 1 : 'S', 2 : 'D', 3 : 'P', 4 : 'X'}
-            #     action = self.get_action(game_state, player_state, self.Game.dealer_state,explore=False)
-            #     next_game_state, next_player_state, reward, done = self.Game.step(action)
-            #     self.update_parameters(game_state, player_state, self.Game.dealer_state, action, reward, next_game_state,
-            #                            next_player_state)
-            #
-            #     game_state = next_game_state
-            #     player_state = next_player_state
             reward = run_loop(self, False)
-            wins += (reward > 0)
+            wins += (reward > 0) + (reward==2 and self.Game.isSplit)
         return wins
 
 
@@ -177,7 +167,7 @@ def validation(gamma):
     best_alpha = alphas[0]
     best_reward = -math.inf
     for alpha in alphas:
-        agent = QAgent(alpha, gamma, epsilon=1)
+        agent = QAgent(alpha, gamma, epsilon=0.6)
         rewards = 0
         for _ in tqdm(range(0, (9 * n_learning) // 10)):
             run_loop(agent, True)
@@ -204,6 +194,13 @@ def CreatePolicyTable(policy_Qtable):
     return retval
 
 
+def autoValidation():
+    gammas = np.arange(0.1, 1, 0.05)
+    mp_pool = mp.Pool(os.cpu_count())
+    results = mp_pool.imap_unordered(validation, gammas)
+    best_result = max(results)
+    return best_result
+
 def main():
     """ Rewards:
             Regular WIN     = 1
@@ -218,22 +215,13 @@ def main():
     n_train = 10000000
     n_test = 300000
 
-    gammas = np.arange(0.1, 1, 0.05)
-    mp_pool = mp.Pool(os.cpu_count())
-    results = mp_pool.imap_unordered(validation, gammas)
-    best_result = max(results)
-    best_epsilon = 1
-
-    # best_rewards, best_gamma, best_alpha = validation(0.005)
-    # best_result  = validation(0.005)
-    # best_epsilon = 0.1
-
-    # best_result = [1636, 0.25, 0.002, 1]
+    # best_result = autoValidation()
+    best_result = [1636, 0.25, 0.002, 0.6]
 
     print(best_result)
     best_gamma = best_result[1]
     best_alpha = best_result[2]
-    # best_epsilon = best_result[3]
+    best_epsilon = best_result[3]
 
     # Training policy
     agent = QAgent(best_alpha, best_gamma, best_epsilon)
@@ -242,7 +230,7 @@ def main():
 
     print('\t\t\tHard')
     hard_policy = CreatePolicyTable(agent.Q_table[0])
-    print(pd.DataFrame(hard_policy[4:, 2:], columns=[2, 3, 4, 5, 6, 7, 8, 9, 10, 'A'], index=list(range(4, 22))))
+    print(pd.DataFrame(hard_policy[5:, 2:], columns=[2, 3, 4, 5, 6, 7, 8, 9, 10, 'A'], index=list(range(5, 22))))
 
     print()
 
