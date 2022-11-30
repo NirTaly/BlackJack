@@ -7,6 +7,9 @@ import random
 from tqdm import tqdm
 import pandas as pd
 import multiprocessing as mp
+import optuna
+from joblib import parallel_backend
+import sqlite3
 
 action_dict = {0: 'S', 1: 'H', 2: 'X', 3: 'D', 4: 'P'}
 
@@ -70,7 +73,7 @@ def CreateQTable(player_state_tuple, legal_actions):
     for key in tuple_player_dealer_list:
         Q_table[key] = dict.fromkeys(legal_actions, 0)
     # add dummy for burned states
-    Q_table["BURNED"] = 0               #TODO CHECK
+    Q_table["BURNED"] = 0
     return Q_table
 
 
@@ -99,9 +102,11 @@ class QAgent:
                 player_state //= 2
         return player_state
 
-    def update_epsilon(self):
+    def update_epsilon(self):  # TODO add to optuna
         if self.epsilon > 0.05:
             self.epsilon *= 0.999999
+        else:
+            self.epsilon = 0.05
 
     def get_action(self, game_state, player_state, dealer_state, explore=True):
         if (random.uniform(0, 1) < self.epsilon and explore):
@@ -151,7 +156,7 @@ class QAgent:
         wins = 0
         for _ in tqdm(range(0, n_test)):
             reward = run_loop(self, False)
-            wins += (reward > 0) + (reward==2 and self.Game.isSplit)
+            wins += (reward > 0) + (reward == 2 and self.Game.isSplit)
         return wins
 
 
@@ -172,7 +177,7 @@ def validation(gamma):
         for _ in tqdm(range(0, (9 * n_learning) // 10)):
             run_loop(agent, True)
         for _ in tqdm(range(0, n_learning // 10)):
-            rewards += run_loop(agent, True)
+            rewards += run_loop(agent, False)
 
         if rewards > best_reward:
             best_alpha = alpha
@@ -201,29 +206,50 @@ def autoValidation():
     best_result = max(results)
     return best_result
 
-def main():
-    """ Rewards:
-            Regular WIN     = 1
-            DoubleDown WIN  = 2
-            SPLIT WIN       = 1 (per win)
-            Lose            = -1
-            SPLIT Lose      = 1 (per win)
-            Surrender Lose  = -0.5
-        States:
-            (0 = Hard / 1 = Soft / 2 = Splittable , HandSum, DealerSum)
-    """
-    n_train = 10000000
-    n_test = 300000
 
-    # best_result = autoValidation()
-    best_result = [1636, 0.25, 0.002, 0.6]
+def objective(trial):
+    n_learning = 25000000
+    alpha = trial.suggest_float("alpha", low=1e-6, high=1e-4, step=1e-6)
+    gamma = trial.suggest_float("gamma", low=0.2, high=0.9, step=0.05)
+    # epsilon = trial.suggest_float("epsilon",low=0.7,high=1,step=0.1)
+    epsilon = 0.9
 
-    print(best_result)
-    best_gamma = best_result[1]
-    best_alpha = best_result[2]
-    best_epsilon = best_result[3]
+    agent = QAgent(alpha, gamma, epsilon)
+    rewards = 0
+    for _ in range(0, (9 * n_learning) // 10):
+        run_loop(agent, True)
+    for _ in range(0, n_learning // 10):
+        rewards += run_loop(agent, False)
 
-    # Training policy
+    return rewards
+
+
+def learnOptuna():
+    sqlite = create_connection('Optuna6.db')
+
+    study = optuna.create_study(direction="maximize", storage='sqlite:///Optuna6.db', load_if_exists=True,
+                                study_name='distributed-example')
+    with parallel_backend('multiprocessing'):  # Overrides `prefer="threads"` to use multi-processing.
+        study.optimize(objective, n_trials=50, n_jobs=1, show_progress_bar=True)
+
+    result = study.best_value
+    gamma = study.best_params['gamma']
+    epsilon = study.best_params['epsilon']
+    best_alpha = study.best_params['alpha']
+    return result, best_alpha, gamma, epsilon
+
+
+def create_connection(path):
+    connection = sqlite3.connect(path)
+    print("Connection to SQLite DB successful")
+
+    return connection
+
+
+def finalTest(best_alpha, best_gamma, best_epsilon):
+    n_train = 25000000
+    n_test = 500000
+
     agent = QAgent(best_alpha, best_gamma, best_epsilon)
     agent.train(n_train)
     wins = agent.test(n_test)
@@ -246,6 +272,32 @@ def main():
     # , rows=['2,2', '3,3', '4,4', '5,5', '6,6', '7,7', '8,8', '9,9', '10,10', 'A,A']
 
     print(wins / n_test)
+
+
+def main():
+    """ Rewards:
+            Regular WIN     = 1
+            DoubleDown WIN  = 2
+            SPLIT WIN       = 1 (per win)
+            Lose            = -1
+            SPLIT Lose      = 1 (per win)
+            Surrender Lose  = -0.5
+        States:
+            (0 = Hard / 1 = Soft / 2 = Splittable , HandSum, DealerSum)
+    """
+
+    best_result = learnOptuna()
+    # best_result = autoValidation()
+    # best_result = [[-148636.5, 0.5, 0.0001, 0.9], [-139052.5, 0.5, 4.8e-05, 1], [-135307.0, 0.5, 5.5e-05, 0.7], [-131909.5, 0.5, 4.1e-5, 0.7],
+    # [-129282.0, 0.5, 5.2e-05, 1], [-129224.0, 0.5, 6.5e-5, 0.9], [-123478.0, 0.5, 4.2e-05, 1], [-86508.0, 0.3, 7.7e-05, 0.9]]
+    #best_result = [-84007.5, 0.25, 8.4e-05, 1]
+
+    print(best_result)
+    best_gamma = best_result[1]
+    best_alpha = best_result[2]
+    best_epsilon = best_result[3]
+
+    #finalTest(best_alpha, best_gamma, best_epsilon)
 
 
 if __name__ == '__main__':
