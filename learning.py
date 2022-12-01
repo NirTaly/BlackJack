@@ -154,10 +154,12 @@ class QAgent:
 
     def test(self, n_test):
         wins = 0
+        hands = 0
         for _ in tqdm(range(0, n_test)):
             reward = run_loop(self, False)
             wins += (reward > 0) + (reward == 2 and self.Game.isSplit)
-        return wins
+            hands += 1 + self.Game.isSplit
+        return wins/hands
 
 
 def validation(gamma):
@@ -252,7 +254,7 @@ def finalTest(best_alpha, best_gamma, best_epsilon):
 
     agent = QAgent(best_alpha, best_gamma, best_epsilon)
     agent.train(n_train)
-    wins = agent.test(n_test)
+    win_rate = agent.test(n_test)
 
     print('\t\t\tHard')
     hard_policy = CreatePolicyTable(agent.Q_table[0])
@@ -271,7 +273,7 @@ def finalTest(best_alpha, best_gamma, best_epsilon):
     print(pd.DataFrame(split_policy[2:12, 2:], columns=[2, 3, 4, 5, 6, 7, 8, 9, 10, 'A'], index=list(range(2, 12))))
     # , rows=['2,2', '3,3', '4,4', '5,5', '6,6', '7,7', '8,8', '9,9', '10,10', 'A,A']
 
-    print(wins / n_test)
+    print(win_rate)
 
 
 def main():
