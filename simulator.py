@@ -24,9 +24,11 @@ class Shoe:
 
 
 class Game:
-    def __init__(self, money=100):
+    def __init__(self, money=100, dealerStandSoft17=True, splitAcesAndDone=False):
         self.money = money
         self.shoe = Shoe()
+        self.dealerStandSoft17=dealerStandSoft17
+        self.splitAcesAndDone = splitAcesAndDone
 
     def __handRewadHandler(self, dealer_sum, player_sum):
         reward = 0
@@ -103,21 +105,21 @@ class Game:
                 hand_sum -= 10
         return hand_sum, game_state
 
-    def manageBet(self, dealer_sum, player_sums, bet) -> int:
-        retval = 0
-        for i, _ in enumerate(self.playerCards):
-            if dealer_sum == player_sums[i]:
-                self.money += bet[i]
-            elif dealer_sum > 21:
-                self.money += 2 * bet[i]
-                retval += 1 + self.isDouble
-            elif dealer_sum < player_sums[i] <= 21:
-                self.money += 2 * bet[i]
-                retval += 1 + self.isDouble
-            else:
-                retval -= 1 + self.isDouble
-
-        return retval
+    # def manageBet(self, dealer_sum, player_sums, bet) -> int:
+    #     retval = 0
+    #     for i, _ in enumerate(self.playerCards):
+    #         if dealer_sum == player_sums[i]:
+    #             self.money += bet[i]
+    #         elif dealer_sum > 21:
+    #             self.money += 2 * bet[i]
+    #             retval += 1 + self.isDouble
+    #         elif dealer_sum < player_sums[i] <= 21:
+    #             self.money += 2 * bet[i]
+    #             retval += 1 + self.isDouble
+    #         else:
+    #             retval -= 1 + self.isDouble
+    #
+    #     return retval
 
     def rewardHandler(self, dealer_sum, player_sums):
         reward1 = self.__handRewadHandler(dealer_sum, player_sums[0])
@@ -151,7 +153,7 @@ class Game:
 
         sumHand, game_state = self.sum_hands(hand)
 
-        if sumHand > 21 or action == "S" or action == "D" or (action == "P" and hand[0] == 1):
+        if sumHand > 21 or action == "S" or action == "D" or (self.splitAcesAndDone and action == "P" and hand[0] == 1):
             reward, done = self.endGame()
             self.currHand = 1
 
@@ -163,15 +165,20 @@ class Game:
         # Dealer Moves
         while True:
             dealer_sum, _ = self.sum_hands(self.dealerCards)
-            if 17 <= dealer_sum:
+            if (17 < dealer_sum) or  (17 == dealer_sum and self.dealerStandSoft17):
                 break
             else:
                 self.dealerCards.append(self.shoe.draw_card())
         return dealer_sum
 
     def endGame(self):
-        if self.currHand == 0 and self.isSplit and self.playerCards[0][0] != 1:
-            return 0, True
+        if self.splitAcesAndDone:
+            if self.currHand == 0 and self.isSplit and self.playerCards[0][0] != 1:
+                return 0, True
+        else:
+            if self.currHand == 0 and self.isSplit:
+                return 0, True
+
         player_sums = []
         not_all_hands_burned = True
         for i in range(len(self.playerCards)):

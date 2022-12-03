@@ -8,11 +8,10 @@ from tqdm import tqdm
 import pandas as pd
 import multiprocessing as mp
 import optuna
-from joblib import parallel_backend
+#from joblib import parallel_backend
 import sqlite3
 
 action_dict = {0: 'S', 1: 'H', 2: 'X', 3: 'D', 4: 'P'}
-
 
 def run_loop(agent, explore):
     game_state, player_state = agent.Game.reset_hands()
@@ -35,7 +34,7 @@ def run_loop(agent, explore):
                                             next_game_state, next_player_state)
 
                 if action == "P":
-                    if agent.Game.playerCards[0][0] == 1:
+                    if agent.Game.playerCards[0][0] == 1 and agent.Game.splitAcesAndDone:
                         next_player_state, next_game_state = agent.Game.sum_hands(agent.Game.playerCards[1])
                         last_split_hands_parameters.append(
                             [game_state, player_state, action, next_game_state, next_player_state])
@@ -49,7 +48,7 @@ def run_loop(agent, explore):
             player_state = next_player_state
 
         if agent.Game.isSplit:
-            if agent.Game.playerCards[0][0] == 1:
+            if agent.Game.playerCards[0][0] == 1 and agent.Game.splitAcesAndDone:
                 break
             player_state, game_state = agent.Game.sum_hands(agent.Game.playerCards[agent.Game.currHand])
             done = False
@@ -137,11 +136,16 @@ class QAgent:
 
         # Q-Learn formula
         old_value = self.Q_table[game_state][(player_state, dealer_state)][action]
-        next_max = 0
+        next_max = 0.0
         if (next_player_state > 21):
             next_max = self.Q_table[next_game_state]["BURNED"]
         else:
-            next_max = max(self.Q_table[next_game_state][(next_player_state, dealer_state)].values())
+            if self.Game.first_move:
+                next_max = max(self.Q_table[game_state][(player_state, dealer_state)])
+            else:
+                next_max = max(itertools.islice(self.Q_table[game_state][(player_state, dealer_state)].values(), 2))
+
+            # next_max = max(self.Q_table[next_game_state][(next_player_state, dealer_state)].values())
         new_value = old_value + self.alpha * (reward + self.gamma * next_max - old_value)
 
         # Update the Q_table
@@ -149,7 +153,6 @@ class QAgent:
 
     def train(self, n_train):
         for _ in tqdm(range(0, n_train)):
-            # Reset the game to random state
             run_loop(self, True)
 
     def test(self, n_test):
@@ -288,18 +291,18 @@ def main():
             (0 = Hard / 1 = Soft / 2 = Splittable , HandSum, DealerSum)
     """
 
-    best_result = learnOptuna()
+    #best_result = learnOptuna()
     # best_result = autoValidation()
     # best_result = [[-148636.5, 0.5, 0.0001, 0.9], [-139052.5, 0.5, 4.8e-05, 1], [-135307.0, 0.5, 5.5e-05, 0.7], [-131909.5, 0.5, 4.1e-5, 0.7],
     # [-129282.0, 0.5, 5.2e-05, 1], [-129224.0, 0.5, 6.5e-5, 0.9], [-123478.0, 0.5, 4.2e-05, 1], [-86508.0, 0.3, 7.7e-05, 0.9]]
-    #best_result = [-84007.5, 0.25, 8.4e-05, 1]
+    best_result = [-84007.5, 0.25, 8.4e-05, 1]
 
     print(best_result)
     best_gamma = best_result[1]
     best_alpha = best_result[2]
     best_epsilon = best_result[3]
 
-    #finalTest(best_alpha, best_gamma, best_epsilon)
+    finalTest(best_alpha, best_gamma, best_epsilon)
 
 
 if __name__ == '__main__':
