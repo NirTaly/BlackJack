@@ -140,11 +140,11 @@ class QAgent:
         if (next_player_state > 21):
             next_max = self.Q_table[next_game_state]["BURNED"]
         else:
-            if self.Game.first_move:
-                next_max = max(self.Q_table[game_state][(player_state, dealer_state)])
-            else:
-                next_max = max(itertools.islice(self.Q_table[game_state][(player_state, dealer_state)].values(), 2))
-
+            # if self.Game.first_move:
+            #     next_max = max(self.Q_table[next_game_state][(next_player_state, dealer_state)])
+            # else:
+            #     next_max = max(itertools.islice(self.Q_table[next_game_state][(next_player_state, dealer_state)].values(), 2))
+            next_max = max(itertools.islice(self.Q_table[next_game_state][(next_player_state, dealer_state)].values(), 2))  #next valid states are only {H,S}
             # next_max = max(self.Q_table[next_game_state][(next_player_state, dealer_state)].values())
         new_value = old_value + self.alpha * (reward + self.gamma * next_max - old_value)
 
@@ -158,6 +158,7 @@ class QAgent:
     def test(self, n_test):
         wins = 0
         hands = 0
+        self.Game.shoe.rebuild()
         for _ in tqdm(range(0, n_test)):
             reward = run_loop(self, False)
             wins += (reward > 0) + (reward == 2 and self.Game.isSplit)
@@ -223,6 +224,7 @@ def objective(trial):
     rewards = 0
     for _ in range(0, (9 * n_learning) // 10):
         run_loop(agent, True)
+    agent.Game.shoe.rebuild()
     for _ in range(0, n_learning // 10):
         rewards += run_loop(agent, False)
 
