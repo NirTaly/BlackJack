@@ -53,7 +53,7 @@ def run_loop(agent, explore):
             player_state, game_state = agent.Game.sum_hands(agent.Game.playerCards[agent.Game.currHand])
             done = False
         else:
-            rewards += reward
+            rewards = reward
 
     if agent.Game.isSplit:
         if explore:
@@ -129,6 +129,7 @@ class QAgent:
                            key=dict(
                                itertools.islice(self.Q_table[game_state][(player_state, dealer_state)].items(), 2)).get)
 
+
     def update_parameters(self, game_state, player_state, dealer_state, action, reward, next_game_state,
                           next_player_state):
         player_state = self._playerStateFromGameState(game_state, player_state)
@@ -137,14 +138,12 @@ class QAgent:
         # Q-Learn formula
         old_value = self.Q_table[game_state][(player_state, dealer_state)][action]
         next_max = 0.0
-        if (next_player_state > 21):
+        if (next_player_state > 21 or action in {'S','X'}): #terminal state
             next_max = self.Q_table[next_game_state]["BURNED"]
+        elif action == 'D': #next valid states is only 'S'
+            next_max = self.Q_table[next_game_state][(next_player_state, dealer_state)]['S']        #TODO validate that shouldnt be 0
         else:
-            # if self.Game.first_move:
-            #     next_max = max(self.Q_table[next_game_state][(next_player_state, dealer_state)])
-            # else:
-            #     next_max = max(itertools.islice(self.Q_table[next_game_state][(next_player_state, dealer_state)].values(), 2))
-            next_max = max(itertools.islice(self.Q_table[next_game_state][(next_player_state, dealer_state)].values(), 2))  #next valid states are only {H,S}
+            next_max = max(itertools.islice(self.Q_table[next_game_state][(next_player_state, dealer_state)].values(), 2))
             # next_max = max(self.Q_table[next_game_state][(next_player_state, dealer_state)].values())
         new_value = old_value + self.alpha * (reward + self.gamma * next_max - old_value)
 
@@ -158,12 +157,14 @@ class QAgent:
     def test(self, n_test):
         wins = 0
         hands = 0
+        rewards = 0
         self.Game.shoe.rebuild()
         for _ in tqdm(range(0, n_test)):
             reward = run_loop(self, False)
+            rewards += reward
             wins += (reward > 0) + (reward == 2 and self.Game.isSplit)
             hands += 1 + self.Game.isSplit
-        return wins/hands
+        return wins/hands, rewards
 
 
 def validation(gamma):
@@ -255,11 +256,11 @@ def create_connection(path):
 
 def finalTest(best_alpha, best_gamma, best_epsilon):
     n_train = 25000000
-    n_test = 500000
+    n_test = 2500000
 
     agent = QAgent(best_alpha, best_gamma, best_epsilon)
     agent.train(n_train)
-    win_rate = agent.test(n_test)
+    wins_rate, rewards = agent.test(n_test)
 
     print('\t\t\tHard')
     hard_policy = CreatePolicyTable(agent.Q_table[0])
@@ -278,7 +279,9 @@ def finalTest(best_alpha, best_gamma, best_epsilon):
     print(pd.DataFrame(split_policy[2:12, 2:], columns=[2, 3, 4, 5, 6, 7, 8, 9, 10, 'A'], index=list(range(2, 12))))
     # , rows=['2,2', '3,3', '4,4', '5,5', '6,6', '7,7', '8,8', '9,9', '10,10', 'A,A']
 
-    print(win_rate)
+    print(f"Win rate: {wins_rate}")
+    print(f"Rewards : {rewards}")
+
 
 
 def main():
@@ -296,8 +299,9 @@ def main():
     #best_result = learnOptuna()
     # best_result = autoValidation()
     # best_result = [[-148636.5, 0.5, 0.0001, 0.9], [-139052.5, 0.5, 4.8e-05, 1], [-135307.0, 0.5, 5.5e-05, 0.7], [-131909.5, 0.5, 4.1e-5, 0.7],
-    # [-129282.0, 0.5, 5.2e-05, 1], [-129224.0, 0.5, 6.5e-5, 0.9], [-123478.0, 0.5, 4.2e-05, 1], [-86508.0, 0.3, 7.7e-05, 0.9]]
-    best_result = [-84007.5, 0.25, 8.4e-05, 1]
+    # [-129282.0, 0.5, 5.2e-05, 1], [-129224.0, 0.5, 6.5e-5, 0.9], [-123478.0, 0.5, 4.2e-05, 1], [-86508.0, 0.3, 7.7e-05, 0.9], [-71173.5, 0.9616570203641142, 0.00196250102232301, 0.8073720122385102]]
+    #-73996.0 and parameters: {'alpha': 0.001492950854301212, 'gamma': 0.9131572889821157,'epsilon': 0.3741137556539688}.
+    best_result = [-73996.0, 0.9131572889821157, 0.001492950854301212, 0.3741137556539688]
 
     print(best_result)
     best_gamma = best_result[1]
