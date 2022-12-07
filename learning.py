@@ -197,7 +197,8 @@ def CreatePolicyTable(policy_Qtable):
     policy_table = np.array(list(policy_Qtable.items()), dtype=dict)
     policy_table = np.delete(policy_table, len(policy_table) - 1, axis=0)
     for i, _ in enumerate(policy_table):
-        policy_table[i][1] = max(policy_table[i][1], key=policy_table[i][1].get)
+        non_zero_state_dict = {k: v for k, v in policy_table[i][1].items() if v != 0}
+        policy_table[i][1] = max(non_zero_state_dict, key=non_zero_state_dict.get)
 
     retval = np.empty((22, 12), dtype=str)
     for state in policy_table:
@@ -264,7 +265,7 @@ def finalTest(best_alpha, best_gamma, best_epsilon):
 
     print('\t\t\tHard')
     hard_policy = CreatePolicyTable(agent.Q_table[0])
-    print(pd.DataFrame(hard_policy[5:, 2:], columns=[2, 3, 4, 5, 6, 7, 8, 9, 10, 'A'], index=list(range(5, 22))))
+    print(pd.DataFrame(hard_policy[4:, 2:], columns=[2, 3, 4, 5, 6, 7, 8, 9, 10, 'A'], index=list(range(4, 22))))
 
     print()
 
@@ -301,7 +302,10 @@ def main():
     # best_result = [[-148636.5, 0.5, 0.0001, 0.9], [-139052.5, 0.5, 4.8e-05, 1], [-135307.0, 0.5, 5.5e-05, 0.7], [-131909.5, 0.5, 4.1e-5, 0.7],
     # [-129282.0, 0.5, 5.2e-05, 1], [-129224.0, 0.5, 6.5e-5, 0.9], [-123478.0, 0.5, 4.2e-05, 1], [-86508.0, 0.3, 7.7e-05, 0.9], [-71173.5, 0.9616570203641142, 0.00196250102232301, 0.8073720122385102]]
     #-73996.0 and parameters: {'alpha': 0.001492950854301212, 'gamma': 0.9131572889821157,'epsilon': 0.3741137556539688}.
-    best_result = [-73996.0, 0.9131572889821157, 0.001492950854301212, 0.3741137556539688]
+    #-67898.5 and parameters: {'alpha': 0.0004803668759456502, 'gamma': 1.1962376455954642, 'epsilon': 0.6664046431453283}.
+    #{'alpha': 0.001098144772126204, 'gamma': 1.074120810719544, 'epsilon': 0.9072751496865936}
+    #-66680.5 and parameters: {'alpha': 0.0006297423928461678, 'gamma': 1.1792443587862564, 'epsilon': 0.8986248216065134}
+    best_result = [-66680.5, 1.1792443587862564, 0.0006297423928461678, 0.8986248216065134]
 
     print(best_result)
     best_gamma = best_result[1]
