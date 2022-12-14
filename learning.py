@@ -76,7 +76,236 @@ def CreateQTable(player_state_tuple, legal_actions):
     return Q_table
 
 def initBasicStategy():
+    Q_table_hard = CreateQTable((4, 22, 1), ['S', 'H', 'X', 'D'])
+    Q_table_soft = CreateQTable((13, 22, 1), ['S', 'H', 'X', 'D'])
+    Q_table_split = CreateQTable((2, 12, 1), ['S', 'H', 'X', 'D', 'P'])
+    Q_table_SD = CreateQTable((6, 22, 1), ['SD'])
+
+    # -- HARD --
+
+    for i in range(2,12):
+        Q_table_hard[(4,i)]['H'] = 1
+
+    # 5-8 against 2-10 *HIT*
+    for i in range(5,9):
+        for j in range(2,12):
+            Q_table_hard[(i,j)]['H'] = 1
+
+    # 5-7 against ACES *SURRENDER*
+    for j in range(5,8):
+        Q_table_hard[(i,11)]['X'] = 1
+
+    # 8 against ACES *HIT*
+    Q_table_hard[(8,11)]['H'] = 1
+
+    # 9 against 2,7,8,9,10,11 *HIT*
+    for i in [2,7,8,9,10,11]:
+        Q_table_hard[(9,i)]['H'] = 1
+
+    # 9 against 3-6 *DOUBLE*
+    for i in range(3,7):
+        Q_table_hard[(9,i)]['D'] = 1
+
+    # 10,11 against 2-9 *DOUBLE*
+    for j in range(10,12):
+        for i in range(2,10):
+            Q_table_hard[(j,i)]['D'] = 1
+
+    # 10,11 against 10,A *HIT*
+    for j in range(10,12):
+        for i in range(10,12):
+            Q_table_hard[(j,i)]['H'] = 1
+
+    # 12 against 2,3,7,8,9,10 *HIT*
+    for i in [2,3,7,8,9,10]:
+        Q_table_hard[(12,i)]['H'] = 1
+
+    # 12 against 4-6 *STAND*
+    for i in range(4,7):
+        Q_table_hard[(12,i)]['S'] = 1
+
+    # 12 against A *SURRENDER*
+    Q_table_hard[(12,11)]['X'] = 1
+
+    # 13-16 against 2-6 *STAND*
+    for j in range(13,17):
+        for i in range(2,7):
+            Q_table_hard[(j,i)]['S'] = 1
+
+    # 13 against 7-10 *HIT*
+    for i in range(7,11):
+        Q_table_hard[(13,i)]['H'] = 1
+
+    # 13 against A *SURRENDER*
+    Q_table_hard[(13,11)]['X'] = 1
+
+    # 14,15 against 7-9 *HIT*
+    for j in range(14,16):
+        for i in range(7,10):
+            Q_table_hard[(j,i)]['H'] = 1
+
+    # 14,15 against 10,A *SURRENDER*
+    for j in range(14,16):
+        for i in range(10,12):
+            Q_table_hard[(j,i)]['X'] = 1
+
+    # 16 against 7,8 *HIT*
+    for i in range(7,9):
+        Q_table_hard[(16,i)]['H'] = 1
+
+    # 16 against 9,10,A *SURRENDER*
+    for i in range(9,12):
+        Q_table_hard[(16,i)]['X'] = 1
+
+    # 17 against 2-10 *STAND*
+    for i in range(2,11):
+        Q_table_hard[(17,i)]['S'] = 1
+
+    # 17 against A *SURRENDER*
+    Q_table_hard[(17,11)]['X'] = 1
+
+    # 18+ against ALL *STAND*
+    for j in range(18,22):
+        for i in range(2,12):
+            Q_table_hard[(j,i)]['S'] = 1
+
+
+    # hard_policy = CreatePolicyTable(Q_table_hard)
+    # print(pd.DataFrame(hard_policy[4:, 2:], columns=[2, 3, 4, 5, 6, 7, 8, 9, 10, 'A'], index=list(range(4, 22))))
+
+    # -- SOFT --
+    # 13,14 against 2-4,7-11 *HIT*
+    for i in range(13,15):
+        for j in range(2,5):
+            Q_table_soft[(i,j)]['H'] = 1
+    for i in range(13,15):
+        for j in range(7,12):
+            Q_table_soft[(i,j)]['H'] = 1
     
+    # 13,14 against 5,6 *DOUBLE*
+    for i in range(13,15):
+        for j in range(5,7):
+            Q_table_soft[(i,j)]['D'] = 1
+
+    # 15,16 against 2-3,7-11 *HIT*
+    for i in range(15,17):
+        for j in range(2,4):
+            Q_table_soft[(i,j)]['H'] = 1
+    for i in range(15,17):
+        for j in range(7,12):
+            Q_table_soft[(i,j)]['H'] = 1
+    
+    # 15,16 against 4,5,6 *DOUBLE*
+    for i in range(15,17):
+        for j in range(4,7):
+            Q_table_soft[(i,j)]['D'] = 1
+
+    # 17,18 against 3-6 *DOUBLE*
+    for i in range(17,19):
+        for j in range(3,7):
+            Q_table_soft[(i,j)]['D'] = 1
+    
+    # 17 against 2,7-11 *HIT*
+    for j in [2,7,8,9,10,11]:
+            Q_table_soft[(17,j)]['H'] = 1
+
+    # 18 against 2,7,8 *STAND*
+    for j in [2,7,8]:
+            Q_table_soft[(17,j)]['S'] = 1
+
+    # 18 against 9-11 *HIT*
+    for j in range(9,12):
+            Q_table_soft[(17,j)]['S'] = 1
+            
+    # 19-21 against ALL *STAND*
+    for i in range(19,22):
+        for j in range(2,12):
+            Q_table_soft[(i,j)]['S'] = 1
+
+    # -- SPLIT --
+    
+    # 2,3 against 2,3,8,9,10,A *HIT*
+    for i in range(2,4):
+        for j in [2,3,8,9,10,11]:
+            Q_table_split[(i,j)]['H'] = 1
+
+    # 2,3 against 4-7 *SPLIT*
+    for i in range(2,4):
+        for j in range(4,8):
+            Q_table_split[(i,j)]['P'] = 1
+
+    # correct 3 against A *SURRENDER*
+    Q_table_split[(3,11)]['X'] = 1
+
+    # 4 against ALL *HIT*
+    for j in range(2,12):
+        Q_table_split[(4,j)]['H'] = 1
+
+    # 5 against 2-9 *DOUBLE*
+    for j in range(2,10):
+        Q_table_split[(5,j)]['D'] = 1
+
+    
+    # 5 against 10,11 *HIT*
+    for j in range(10,12):
+        Q_table_split[(5,j)]['H'] = 1
+
+    # 6 against 2,7,8,9,10 *HIT*
+    for j in [2,7,8,9,10]:
+        Q_table_split[(6,j)]['H'] = 1
+
+    # 6 against 3,4,5,6 *SPLIT*
+    for j in [3,4,5,6]:
+        Q_table_split[(6,j)]['P'] = 1
+    
+    # 6 against A *SURRENDER*
+    Q_table_split[(6,j)]['X'] = 1
+
+    # 7 against 8,9 *HIT*
+    for j in [8,9]:
+        Q_table_split[(7,j)]['H'] = 1
+
+    # 7 against 2,3,4,5,6,7 *SPLIT*
+    for j in [2,3,4,5,6,7]:
+        Q_table_split[(7,j)]['P'] = 1
+    
+    # 7 against 10,A *SURRENDER*
+    for j in [10,11]:
+        Q_table_split[(7,j)]['X'] = 1
+
+    # 8 against 2,3,4,5,6,7,8,9 *SPLIT*
+    for j in [2,3,4,5,6,7,8,9]:
+        Q_table_split[(8,j)]['P'] = 1
+    
+    # 8 against 10,A *SURRENDER*
+    for j in [10,11]:
+        Q_table_split[(8,j)]['X'] = 1
+
+    # 9 against 2,3,4,5,6,8,9 *SPLIT*
+    for j in [2,3,4,5,6,8,9]:
+        Q_table_split[(9,j)]['P'] = 1
+    
+    # 9 against A *STAND*
+    for j in [7,10,11]:
+        Q_table_split[(9,j)]['S'] = 1
+
+    # 10 against ALL *STAND*
+    for j in range(2,12):
+        Q_table_split[(10,j)]['S'] = 1
+
+    # A against 2-10 *SPLIT*
+    for j in range(2,11):
+        Q_table_split[(11,j)]['P'] = 1
+
+    # A against A *HIT*
+    Q_table_split[(11,j)]['H'] = 1
+
+    return [Q_table_hard,Q_table_soft,Q_table_split,Q_table_SD]
+
+
+
+    
+        
 
 class QAgent:
 
@@ -323,6 +552,15 @@ def main():
     best_epsilon = best_result[3]
 
     finalTest(best_alpha, best_gamma, best_epsilon)
+
+    # To test Basic Strategy, UNCOMMENT next lines:
+    # agent = QAgent(0.01, 0.9, 1, basicStrategy=True)
+
+    # n_test = 2500000
+    # wins_rate, rewards = agent.test(n_test)
+
+    # print(f"Win rate: {wins_rate}")
+    # print(f"Rewards : {rewards}")
 
 
 if __name__ == '__main__':
