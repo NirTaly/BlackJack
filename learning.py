@@ -8,10 +8,11 @@ from tqdm import tqdm
 import pandas as pd
 import multiprocessing as mp
 import optuna
-#from joblib import parallel_backend
+# from joblib import parallel_backend
 import sqlite3
 
 action_dict = {0: 'S', 1: 'H', 2: 'X', 3: 'D', 4: 'P'}
+
 
 def run_loop(agent, explore):
     game_state, player_state = agent.Game.reset_hands()
@@ -71,24 +72,29 @@ def CreateQTable(player_state_tuple, legal_actions):
     tuple_player_dealer_list = list(itertools.product(list(range(start, stop, step)), list(range(2, 12))))
     for key in tuple_player_dealer_list:
         Q_table[key] = dict.fromkeys(legal_actions, 0)
-    # add dummy for burned states
-    Q_table["BURNED"] = 0
+
     return Q_table
 
+def initBasicStategy():
+    
 
 class QAgent:
 
-    def __init__(self, alpha, gamma, epsilon):
+    def __init__(self, alpha, gamma, epsilon, basicStrategy=False):
         # The BJ Simulator
         self.Game = sym.Game()
 
-        # Init the table with q_values: HARD(18X10) X SOFT(9X10) X SPLIT(8X10) X ACTION(5)
+        if not basicStrategy:
+            # Init the table with q_values: HARD(18X10) X SOFT(9X10) X SPLIT(8X10) X ACTION(5)
+            # 'SD' = stand after double - pseudo state so don't mix stand-after-hit with stand-after-double
+            Q_table_hard = CreateQTable((4, 22, 1), ['S', 'H', 'X', 'D'])
+            Q_table_soft = CreateQTable((13, 22, 1), ['S', 'H', 'X', 'D'])
+            Q_table_split = CreateQTable((2, 12, 1), ['S', 'H', 'X', 'D', 'P'])
+            Q_table_SD = CreateQTable((6, 22, 1), ['SD'])
+            self.Q_table = [Q_table_hard, Q_table_soft, Q_table_split, Q_table_SD]
+        else:
+            self.Q_table = initBasicStategy()
 
-        Q_table_hard = CreateQTable((4, 22, 1), ['S', 'H', 'X', 'D'])
-        Q_table_soft = CreateQTable((13, 22, 1), ['S', 'H', 'X', 'D'])
-        Q_table_split = CreateQTable((2, 12, 1), ['S', 'H', 'X', 'D', 'P'])
-
-        self.Q_table = [Q_table_hard, Q_table_soft, Q_table_split]
         self.alpha = alpha
         self.gamma = gamma
         self.epsilon = epsilon
@@ -101,7 +107,7 @@ class QAgent:
                 player_state //= 2
         return player_state
 
-    def update_epsilon(self):  # TODO add to optuna
+    def update_epsilon(self):
         if self.epsilon > 0.05:
             self.epsilon *= 0.999999
         else:
@@ -120,15 +126,13 @@ class QAgent:
         else:
             if self.Game.first_move:
                 player_state = self._playerStateFromGameState(game_state, player_state)
-
                 return max(self.Q_table[game_state][(player_state, dealer_state)],
                            key=self.Q_table[game_state][(player_state, dealer_state)].get)
-                # return np.argmax(self.Q_table[game_state, player_state, dealer_state][0:3])
+
             else:
                 return max(dict(itertools.islice(self.Q_table[game_state][(player_state, dealer_state)].items(), 2)),
                            key=dict(
                                itertools.islice(self.Q_table[game_state][(player_state, dealer_state)].items(), 2)).get)
-
 
     def update_parameters(self, game_state, player_state, dealer_state, action, reward, next_game_state,
                           next_player_state):
@@ -138,17 +142,24 @@ class QAgent:
         # Q-Learn formula
         old_value = self.Q_table[game_state][(player_state, dealer_state)][action]
         next_max = 0.0
-        if (next_player_state > 21 or action in {'S','X'}): #terminal state
-            next_max = self.Q_table[next_game_state]["BURNED"]
+        double_reward = reward
+        if (next_player_state > 21 or action in {'S', 'X'}):  # terminal state
+            next_max = 0.0
         elif action == 'D': #next valid states is only 'S'
-            next_max = self.Q_table[next_game_state][(next_player_state, dealer_state)]['S']        #TODO validate that shouldnt be 0
+            reward = 0
+            next_max = self.Q_table[3][(next_player_state, dealer_state)]['SD']
         else:
-            next_max = max(itertools.islice(self.Q_table[next_game_state][(next_player_state, dealer_state)].values(), 2))
+            next_max = max(
+                itertools.islice(self.Q_table[next_game_state][(next_player_state, dealer_state)].values(), 2))
             # next_max = max(self.Q_table[next_game_state][(next_player_state, dealer_state)].values())
-        new_value = old_value + self.alpha * (reward + self.gamma * next_max - old_value)
+        new_value = self.alpha * (reward + self.gamma * next_max - old_value)
 
         # Update the Q_table
-        self.Q_table[game_state][(player_state, dealer_state)][action] = new_value
+        self.Q_table[game_state][(player_state, dealer_state)][action] += new_value
+        if next_player_state <= 21 and action == 'D':
+            old_value_double = next_max
+            new_value_double = self.alpha * (double_reward - old_value_double)
+            self.Q_table[3][(next_player_state, dealer_state)]['SD'] += new_value_double
 
     def train(self, n_train):
         for _ in tqdm(range(0, n_train)):
@@ -164,7 +175,7 @@ class QAgent:
             rewards += reward
             wins += (reward > 0) + (reward == 2 and self.Game.isSplit)
             hands += 1 + self.Game.isSplit
-        return wins/hands, rewards
+        return wins / hands, rewards
 
 
 def validation(gamma):
@@ -238,7 +249,7 @@ def learnOptuna():
 
     study = optuna.create_study(direction="maximize", storage='sqlite:///Optuna6.db', load_if_exists=True,
                                 study_name='distributed-example')
-    with parallel_backend('multiprocessing'):  # Overrides `prefer="threads"` to use multi-processing.
+    with parallel_backend('multiprocessing'):  # Overrides `prefer="threads"` to use multiprocessing.
         study.optimize(objective, n_trials=50, n_jobs=1, show_progress_bar=True)
 
     result = study.best_value
@@ -284,7 +295,6 @@ def finalTest(best_alpha, best_gamma, best_epsilon):
     print(f"Rewards : {rewards}")
 
 
-
 def main():
     """ Rewards:
             Regular WIN     = 1
@@ -297,15 +307,15 @@ def main():
             (0 = Hard / 1 = Soft / 2 = Splittable , HandSum, DealerSum)
     """
 
-    #best_result = learnOptuna()
+    # best_result = learnOptuna()
     # best_result = autoValidation()
     # best_result = [[-148636.5, 0.5, 0.0001, 0.9], [-139052.5, 0.5, 4.8e-05, 1], [-135307.0, 0.5, 5.5e-05, 0.7], [-131909.5, 0.5, 4.1e-5, 0.7],
     # [-129282.0, 0.5, 5.2e-05, 1], [-129224.0, 0.5, 6.5e-5, 0.9], [-123478.0, 0.5, 4.2e-05, 1], [-86508.0, 0.3, 7.7e-05, 0.9], [-71173.5, 0.9616570203641142, 0.00196250102232301, 0.8073720122385102]]
-    #-73996.0 and parameters: {'alpha': 0.001492950854301212, 'gamma': 0.9131572889821157,'epsilon': 0.3741137556539688}.
-    #-67898.5 and parameters: {'alpha': 0.0004803668759456502, 'gamma': 1.1962376455954642, 'epsilon': 0.6664046431453283}.
-    #{'alpha': 0.001098144772126204, 'gamma': 1.074120810719544, 'epsilon': 0.9072751496865936}
-    #-66680.5 and parameters: {'alpha': 0.0006297423928461678, 'gamma': 1.1792443587862564, 'epsilon': 0.8986248216065134}
-    best_result = [-66680.5, 1.1792443587862564, 0.0006297423928461678, 0.8986248216065134]
+    # -73996.0 and parameters: {'alpha': 0.001492950854301212, 'gamma': 0.9131572889821157,'epsilon': 0.3741137556539688}.
+    # -67898.5 and parameters: {'alpha': 0.0004803668759456502, 'gamma': 1.1962376455954642, 'epsilon': 0.6664046431453283}.
+    # {'alpha': 0.001098144772126204, 'gamma': 1.074120810719544, 'epsilon': 0.9072751496865936}
+    # -66680.5 and parameters: {'alpha': 0.0006297423928461678, 'gamma': 1.1792443587862564, 'epsilon': 0.8986248216065134}
+    best_result = [-65368.0, 1.1792443587862564, 0.000942578570381582, 0.9210472074709081]
 
     print(best_result)
     best_gamma = best_result[1]
