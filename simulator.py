@@ -36,9 +36,9 @@ class Game:
             reward -= 1 + self.isDouble
         elif dealer_sum > 21:
             reward += 1 + self.isDouble
-        elif dealer_sum < player_sum <= 21:
+        elif dealer_sum < player_sum:
             reward += 1 + self.isDouble
-        elif player_sum == dealer_sum and player_sum <= 21:
+        elif player_sum == dealer_sum:
             reward = 0
         else:
             reward -= 1 + self.isDouble
@@ -98,7 +98,7 @@ class Game:
 
     def sum_hands(self, hand):
         hand_sum = sum(cards_values[i] for i in hand)
-        game_state = 1 if (hand.count(1) == 1 and hand_sum <=21) else 0
+        game_state = 1 if (hand.count(1) == 1 and hand_sum <= 21) else 0
 
         for i in range(hand.count(1)):
             if hand_sum > 21:
