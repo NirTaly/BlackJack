@@ -14,79 +14,6 @@ import sqlite3
 action_dict = {0: 'S', 1: 'H', 2: 'X', 3: 'D', 4: 'P'}
 MILLION = 1000000
 
-
-# function that handle case of early BJ
-def handleBJ(agent, explore):
-    reward, done = 0, False
-    player_state, game_state = agent.Game.sum_hands(agent.Game.playerCards[0])
-    dealer_sum, _ = agent.Game.sum_hands(agent.Game.dealerCards)
-    if player_state == 21 or dealer_sum == 21:
-        action = 'S'
-        reward = agent.Game.rewardHandler(dealer_sum, [player_state])
-        reward = 1.5 * reward if (reward > 0) else reward
-        done = True
-        if explore:
-            agent.update_parameters(game_state, player_state, agent.Game.dealer_state, action, reward, game_state,
-                                    player_state)
-
-    return reward, done
-
-
-def run_loop(agent, explore):
-    game_state, player_state = agent.Game.reset_hands()
-    reward, done = handleBJ(agent, explore)
-    agent.update_epsilon()
-    last_split_hands_parameters = []
-    for i, _ in enumerate(agent.Game.playerCards):
-        while not done:
-            action = agent.get_action(game_state, player_state, agent.Game.dealer_state, explore)
-
-            next_game_state, next_player_state, reward, done = agent.Game.step(action)
-
-            if explore:
-                if done and agent.Game.isSplit:
-                    last_split_hands_parameters.append(
-                        [game_state, player_state, action, next_game_state, next_player_state])
-                else:
-                    agent.update_parameters(game_state, player_state, agent.Game.dealer_state, action, reward,
-                                            next_game_state, next_player_state)
-
-                if action == "P":
-                    if agent.Game.playerCards[0][0] == 1 and agent.Game.splitAcesAndDone:
-                        next_player_state, next_game_state = agent.Game.sum_hands(agent.Game.playerCards[1])
-                        last_split_hands_parameters.append(
-                            [game_state, player_state, action, next_game_state, next_player_state])
-                        break
-                    else:
-                        sec_hand_player_state, sec_hand_game_state = agent.Game.sum_hands(agent.Game.playerCards[1])
-                        agent.update_parameters(game_state, player_state, agent.Game.dealer_state, action, reward,
-                                                sec_hand_game_state, sec_hand_player_state)
-
-            game_state = next_game_state
-            player_state = next_player_state
-
-        if agent.Game.isSplit:
-            if agent.Game.playerCards[0][0] == 1 and agent.Game.splitAcesAndDone:
-                break
-            player_state, game_state = agent.Game.sum_hands(agent.Game.playerCards[agent.Game.currHand])
-            done = False
-        else:
-            rewards = reward
-
-    if agent.Game.isSplit:
-        if explore:
-            for i in range(2):
-                game_state, player_state, action, next_game_state, next_player_state = last_split_hands_parameters[i]
-                agent.update_parameters(game_state, player_state, agent.Game.dealer_state, action, reward[i],
-                                        next_game_state, next_player_state)
-        rewards = sum(reward)
-        wins = sum(1 for w in reward if w > 0)
-    else:
-        wins = 1 if (reward > 0) else 0
-
-    return rewards, wins
-
-
 def CreateQTable(player_state_tuple, legal_actions):
     Q_table = dict()
     start, stop, step = player_state_tuple
@@ -296,10 +223,46 @@ class QAgent:
         return player_state
 
     def update_epsilon(self):
-        if self.epsilon > 0.05:
-            self.epsilon *= 0.999999
+        if self.epsilon > 0.1:
+            self.epsilon *= 0.9999995
         else:
-            self.epsilon = 0.05
+            self.epsilon = 0.1
+
+    # function that handle case of early BJ
+    def handleBJ(self, explore):
+        reward, done = 0, False
+        player_state, game_state = self.Game.sum_hands(self.Game.playerCards[0])
+        dealer_sum, _ = self.Game.sum_hands(self.Game.dealerCards)
+        if player_state == 21 or dealer_sum == 21:
+            action = 'S'
+            reward = self.Game.rewardHandler(dealer_sum, [player_state])
+            reward = 1.5 * reward if (reward > 0) else reward
+            done = True
+            if explore:
+                self.update_parameters(game_state, player_state, self.Game.dealer_state, action, reward, game_state,
+                                       player_state)
+        return reward, done
+
+    def splitUpdateParamsFirst(self, player_state, first_hand_next_game_state, first_hand_next_player_state):
+        game_state, action = 2, 'P'
+        sec_hand_player_state, sec_hand_game_state = self.Game.sum_hands(self.Game.playerCards[1])
+
+        player_state = self._playerStateFromGameState(game_state, player_state)
+
+        first_hand_params = (game_state, player_state, action, first_hand_next_game_state, first_hand_next_player_state)
+        sec_hand_params = (game_state, player_state, action, sec_hand_game_state, sec_hand_player_state)
+        hands_params = [first_hand_params, sec_hand_params]
+
+        old_value = self.Q_table[game_state][(player_state, self.Game.dealer_state)][action]
+        reward = 0
+        for i in range(2):
+            game_state, player_state, action, next_game_state, next_player_state = hands_params[i]
+            next_max = max(itertools.islice(
+                self.Q_table[next_game_state][(next_player_state, self.Game.dealer_state)].values(), 2))
+
+            new_value = self.alpha * (reward + self.gamma * next_max - old_value)
+
+            self.Q_table[game_state][(player_state, self.Game.dealer_state)][action] += new_value
 
     def get_action(self, game_state, player_state, dealer_state, explore=True):
         if (random.uniform(0, 1) < self.epsilon) and explore:
@@ -325,7 +288,6 @@ class QAgent:
     def update_parameters(self, game_state, player_state, dealer_state, action, reward, next_game_state,
                           next_player_state):
         player_state = self._playerStateFromGameState(game_state, player_state)
-        next_player_state = self._playerStateFromGameState(next_game_state, next_player_state)
 
         # Q-Learn formula
         old_value = self.Q_table[game_state][(player_state, dealer_state)][action]
@@ -339,7 +301,7 @@ class QAgent:
         else:
             next_max = max(
                 itertools.islice(self.Q_table[next_game_state][(next_player_state, dealer_state)].values(), 2))
-            # next_max = max(self.Q_table[next_game_state][(next_player_state, dealer_state)].values())
+
         new_value = self.alpha * (reward + self.gamma * next_max - old_value)
 
         # Update the Q_table
@@ -349,9 +311,61 @@ class QAgent:
             new_value_double = self.alpha * (double_reward - old_value_double)
             self.Q_table[3][(next_player_state, dealer_state)]['SD'] += new_value_double
 
+    def run_loop(self, explore):
+        game_state, player_state = self.Game.reset_hands()
+        reward, done = self.handleBJ(explore)
+        self.update_epsilon()
+        last_split_hands_parameters = []
+        for i, _ in enumerate(self.Game.playerCards):
+            while not done:
+                action = self.get_action(game_state, player_state, self.Game.dealer_state, explore)
+
+                next_game_state, next_player_state, reward, done = self.Game.step(action)
+
+                if explore:
+                    if action == "P":
+                        if self.Game.playerCards[0][0] == 1 and self.Game.splitAcesAndDone:
+                            next_player_state, next_game_state = self.Game.sum_hands(self.Game.playerCards[1])
+                            last_split_hands_parameters.append(
+                                [game_state, player_state, action, next_game_state, next_player_state])
+                            break
+                        else:
+                            self.splitUpdateParamsFirst(player_state, next_game_state, next_player_state)
+                    elif done and self.Game.isSplit:
+                        last_split_hands_parameters.append(
+                            [game_state, player_state, action, next_game_state, next_player_state])
+                    else:
+                        self.update_parameters(game_state, player_state, self.Game.dealer_state, action, reward,
+                                                next_game_state, next_player_state)
+
+                game_state = next_game_state
+                player_state = next_player_state
+
+            if self.Game.isSplit:
+                if self.Game.playerCards[0][0] == 1 and self.Game.splitAcesAndDone:
+                    break
+                player_state, game_state = self.Game.sum_hands(self.Game.playerCards[self.Game.currHand])
+                done = False
+            else:
+                rewards = reward
+
+        if self.Game.isSplit:
+            if explore:
+                for i in range(2):
+                    game_state, player_state, action, next_game_state, next_player_state = last_split_hands_parameters[
+                        i]
+                    self.update_parameters(game_state, player_state, self.Game.dealer_state, action, reward[i],
+                                            next_game_state, next_player_state)
+            rewards = sum(reward)
+            wins = sum(1 for w in reward if w > 0)
+        else:
+            wins = 1 if (reward > 0) else 0
+
+        return rewards, wins
+
     def train(self, n_train):
         for _ in tqdm(range(0, n_train)):
-            run_loop(self, True)
+            self.run_loop(True)
 
     def test(self, n_test):
         total_wins = 0
@@ -359,9 +373,8 @@ class QAgent:
         rewards = 0
         self.Game.shoe.rebuild()
         for _ in tqdm(range(0, n_test)):
-            reward, wins = run_loop(self, False)
+            reward, wins = self.run_loop(False)
             rewards += reward
-            # wins += (reward > 0) + (reward == 2 and self.Game.isSplit)
             total_wins += wins
             hands += 1 + self.Game.isSplit
         return total_wins / hands, rewards
@@ -382,9 +395,9 @@ def validation(gamma):
         agent = QAgent(alpha, gamma, epsilon=0.6)
         rewards = 0
         for _ in tqdm(range(0, (9 * n_learning) // 10)):
-            run_loop(agent, True)
+            agent.run_loop(True)
         for _ in tqdm(range(0, n_learning // 10)):
-            rewards += run_loop(agent, False)
+            rewards += agent.run_loop(False)
 
         if rewards > best_reward:
             best_alpha = alpha
@@ -415,30 +428,30 @@ def autoValidation():
 
 
 def objective(trial):
-    n_learning = 100 * MILLION
-    alpha = trial.suggest_float("alpha", low=1e-6, high=1e-4, log=True)
-    gamma = trial.suggest_float("gamma", low=0.2, high=1)
-    epsilon = trial.suggest_float("epsilon", low=0.7, high=1, step=0.1)
+    n_learning = 30 * MILLION
+    alpha = trial.suggest_float("alpha", low=1e-6, high=1e-1, log=True)
+    gamma = trial.suggest_float("gamma", low=0.2, high=1.1)
+    epsilon = trial.suggest_float("epsilon", low=0.5, high=1, step=0.1)
 
     agent = QAgent(alpha, gamma, epsilon)
     rewards = 0
-    for _ in range(0, (9 * n_learning) // 10):
-        run_loop(agent, True)
+    for _ in range(0, (2 * n_learning) // 3):
+        agent.run_loop(True)
     agent.Game.shoe.rebuild()
-    for _ in range(0, n_learning // 10):
-        reward, _ = run_loop(agent, False)
+    for _ in range(0, n_learning // 3):
+        reward, _ = agent.run_loop(False)
         rewards += reward
 
     return rewards
 
 
 def learnOptuna():
-    sqlite = create_connection('Optuna6.db')
+    sqlite = create_connection('BJ_30M.db')
 
-    study = optuna.create_study(direction="maximize", storage='sqlite:///Optuna6.db', load_if_exists=True,
-                                study_name='distributed-example')
+    study = optuna.create_study(direction="maximize", storage='sqlite:///BJ_30M.db', load_if_exists=True,
+                                study_name='InalDinak')
     with parallel_backend('multiprocessing'):  # Overrides `prefer="threads"` to use multiprocessing.
-        study.optimize(objective, n_trials=50, n_jobs=1, show_progress_bar=True)
+        study.optimize(objective, n_trials=500, n_jobs=1, show_progress_bar=True)
 
     result = study.best_value
     gamma = study.best_params['gamma']
@@ -455,7 +468,7 @@ def create_connection(path):
 
 
 def finalTest(best_alpha, best_gamma, best_epsilon, basicStrategy=False):
-    n_train = 100 * MILLION
+    n_train = 50 * MILLION
     n_test = 10 * MILLION
 
     agent = QAgent(best_alpha, best_gamma, best_epsilon, basicStrategy)
@@ -497,23 +510,24 @@ def main():
     """
 
     # best_result = learnOptuna()
-    # best_result = autoValidation()
-    # best_result = [[-148636.5, 0.5, 0.0001, 0.9], [-139052.5, 0.5, 4.8e-05, 1], [-135307.0, 0.5, 5.5e-05, 0.7], [-131909.5, 0.5, 4.1e-5, 0.7],
-    # [-129282.0, 0.5, 5.2e-05, 1], [-129224.0, 0.5, 6.5e-5, 0.9], [-123478.0, 0.5, 4.2e-05, 1], [-86508.0, 0.3, 7.7e-05, 0.9], [-71173.5, 0.9616570203641142, 0.00196250102232301, 0.8073720122385102]]
     # -73996.0 and parameters: {'alpha': 0.001492950854301212, 'gamma': 0.9131572889821157,'epsilon': 0.3741137556539688}.
     # -67898.5 and parameters: {'alpha': 0.0004803668759456502, 'gamma': 1.1962376455954642, 'epsilon': 0.6664046431453283}.
     # {'alpha': 0.001098144772126204, 'gamma': 1.074120810719544, 'epsilon': 0.9072751496865936}
     # -66680.5 and parameters: {'alpha': 0.0006297423928461678, 'gamma': 1.1792443587862564, 'epsilon': 0.8986248216065134}
-    # -179349.5 and parameters: {'alpha': 7.262174887534219e-05, 'gamma': 0.839929307481615, 'epsilon': 0.5}
-    # -164333.0 and parameters: {'alpha': 9.975160200179558e-05, 'gamma': 0.8226520091642391, 'epsilon': 0.6}
-    best_result = [-179349.5, 0.8226520091642391, 9.975160200179558e-05, 0.6]
+    # -10076.0 and parameters: {'alpha': 0.0023883300020830127, 'gamma': 0.7982205072789618, 'epsilon': 0.8}.
+    # -10071.0 and parameters: {'alpha': 0.0020742381406755835, 'gamma': 0.445944098197451, 'epsilon': 0.8}.
+    # -9686.0 and parameters: {'alpha': 0.002721225490977786, 'gamma': 0.7737094148769824, 'epsilon': 0.7}.
+    # -107871.5 and parameters: {'alpha': 0.004993279721394013, 'gamma': 0.7798829655701662, 'epsilon': 1.0}.
+    # -97437.0 and parameters: {'alpha': 0.0014432395677060068, 'gamma': 0.7491076134854117, 'epsilon': 0.9000000000000001}
+    # -84888.0 and parameters: {'alpha': 0.0020991386306812507, 'gamma': 0.9306406087558762, 'epsilon': 1.0}.
+    best_result = [-84888.0, 0.9306406087558762, 0.0020991386306812507, 1.0]
 
     print(best_result)
     best_gamma = best_result[1]
     best_alpha = best_result[2]
     best_epsilon = best_result[3]
 
-    finalTest(best_alpha, best_gamma, best_epsilon, basicStrategy=True)
+    finalTest(best_alpha, best_gamma, best_epsilon, basicStrategy=False)
 
 
 if __name__ == '__main__':
