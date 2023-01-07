@@ -45,7 +45,7 @@ class Game:
 
         return reward
 
-    def reset_hands(self):
+    def reset_hands(self, onlyPairs=False):
         self.playerCards = [[]]
         self.dealerCards = []
         self.isSplit = False
@@ -54,18 +54,26 @@ class Game:
         self.first_move = True
 
         # card draw
-        for j in range(0, 2):
-            self.playerCards[0].append(self.shoe.draw_card())
-            self.dealerCards.append(self.shoe.draw_card())
+        if not onlyPairs:
+            for j in range(0, 2):
+                self.playerCards[0].append(self.shoe.draw_card())
+                self.dealerCards.append(self.shoe.draw_card())
 
-        if (self.playerCards[0][0] == self.playerCards[0][1]):
-            game_state = 2
-        elif (self.playerCards[0].count(1) == 1):
-            game_state = 1
+            if (self.playerCards[0][0] == self.playerCards[0][1]):
+                game_state = 2
+            elif (self.playerCards[0].count(1) == 1):
+                game_state = 1
+            else:
+                game_state = 0
+
+            player_state, _ = self.sum_hands(self.playerCards[0])
         else:
-            game_state = 0
+            card = random.randint(1,13)
+            self.playerCards[0] = [card, card]
+            game_state = 2
+            self.dealerCards = [self.shoe.draw_card(), self.shoe.draw_card()]
+            player_state = 2 * cards_values[self.playerCards[0][0]]
 
-        player_state, _ = self.sum_hands(self.playerCards[0])
         self.dealer_state = cards_values[self.dealerCards[0]]
         return game_state, player_state
 

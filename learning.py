@@ -14,6 +14,12 @@ import sqlite3
 action_dict = {0: 'S', 1: 'H', 2: 'X', 3: 'D', 4: 'P'}
 MILLION = 1000000
 
+#TODO add bust-after-double
+#TODO add bust-after-hit
+#TODO gamma=1                                                       [V]
+#TODO start_epsilon,end_epsilon,decay_rate to optuna                [V]
+#TODO first learn HARD,SOFT , then SPLIT                            [V]
+
 def CreateQTable(player_state_tuple, legal_actions):
     Q_table = dict()
     start, stop, step = player_state_tuple
@@ -195,7 +201,7 @@ def initBasicStrategy1():
 
 class QAgent:
 
-    def __init__(self, alpha, gamma, epsilon, basicStrategy=False):
+    def __init__(self, alpha, gamma, epsilon, final_epsilon, decay_rate, basicStrategy=False):
         # The BJ Simulator
         self.Game = sym.Game()
 
@@ -213,7 +219,8 @@ class QAgent:
         self.alpha = alpha
         self.gamma = gamma
         self.epsilon = epsilon
-
+        self.final_epsilon = final_epsilon
+        self.decay_rate = decay_rate
     def _playerStateFromGameState(self, game_state, player_state):
         if game_state == 2:
             if self.Game.playerCards[0][0] == 1:
@@ -223,10 +230,10 @@ class QAgent:
         return player_state
 
     def update_epsilon(self):
-        if self.epsilon > 0.1:
-            self.epsilon *= 0.9999995
+        if self.epsilon > self.final_epsilon:
+            self.epsilon *= self.decay_rate
         else:
-            self.epsilon = 0.1
+            self.epsilon = self.final_epsilon
 
     # function that handle case of early BJ
     def handleBJ(self, explore):
@@ -234,13 +241,9 @@ class QAgent:
         player_state, game_state = self.Game.sum_hands(self.Game.playerCards[0])
         dealer_sum, _ = self.Game.sum_hands(self.Game.dealerCards)
         if player_state == 21 or dealer_sum == 21:
-            action = 'S'
             reward = self.Game.rewardHandler(dealer_sum, [player_state])
             reward = 1.5 * reward if (reward > 0) else reward
             done = True
-            if explore:
-                self.update_parameters(game_state, player_state, self.Game.dealer_state, action, reward, game_state,
-                                       player_state)
         return reward, done
 
     def splitUpdateParamsFirst(self, player_state, first_hand_next_game_state, first_hand_next_player_state):
@@ -311,10 +314,9 @@ class QAgent:
             new_value_double = self.alpha * (double_reward - old_value_double)
             self.Q_table[3][(next_player_state, dealer_state)]['SD'] += new_value_double
 
-    def run_loop(self, explore):
-        game_state, player_state = self.Game.reset_hands()
+    def run_loop(self, explore, onlyPairs=False):
+        game_state, player_state = self.Game.reset_hands(onlyPairs)
         reward, done = self.handleBJ(explore)
-        self.update_epsilon()
         last_split_hands_parameters = []
         for i, _ in enumerate(self.Game.playerCards):
             while not done:
@@ -341,6 +343,8 @@ class QAgent:
                 game_state = next_game_state
                 player_state = next_player_state
 
+                if onlyPairs:
+                    return 0, 0
             if self.Game.isSplit:
                 if self.Game.playerCards[0][0] == 1 and self.Game.splitAcesAndDone:
                     break
@@ -363,9 +367,10 @@ class QAgent:
 
         return rewards, wins
 
-    def train(self, n_train):
-        for _ in tqdm(range(0, n_train)):
-            self.run_loop(True)
+    def train(self, n_train, onlyPairs=False):
+        for i in tqdm(range(0, n_train)):
+            self.update_epsilon()
+            self.run_loop(True,onlyPairs)
 
     def test(self, n_test):
         total_wins = 0
@@ -394,7 +399,8 @@ def validation(gamma):
     for alpha in alphas:
         agent = QAgent(alpha, gamma, epsilon=0.6)
         rewards = 0
-        for _ in tqdm(range(0, (9 * n_learning) // 10)):
+        for i in tqdm(range(0, (9 * n_learning) // 10)):
+            agent.update_epsilon()
             agent.run_loop(True)
         for _ in tqdm(range(0, n_learning // 10)):
             rewards += agent.run_loop(False)
@@ -429,13 +435,16 @@ def autoValidation():
 
 def objective(trial):
     n_learning = 30 * MILLION
+    gamma = 1
     alpha = trial.suggest_float("alpha", low=1e-6, high=1e-1, log=True)
-    gamma = trial.suggest_float("gamma", low=0.2, high=1.1)
     epsilon = trial.suggest_float("epsilon", low=0.5, high=1, step=0.1)
+    f_epsilon = trial.suggest_float("f_epsilon", low=0, high=0.3)
+    decay_rate = 1 - trial.suggest_float("decay_rate", low=0.1e-4, high=1e-10, log=True)
 
-    agent = QAgent(alpha, gamma, epsilon)
+    agent = QAgent(alpha, gamma, epsilon, f_epsilon, decay_rate)
     rewards = 0
-    for _ in range(0, (2 * n_learning) // 3):
+    for i in range(0, (2 * n_learning) // 3):
+        agent.update_epsilon()
         agent.run_loop(True)
     agent.Game.shoe.rebuild()
     for _ in range(0, n_learning // 3):
@@ -455,9 +464,11 @@ def learnOptuna():
 
     result = study.best_value
     gamma = study.best_params['gamma']
-    epsilon = study.best_params['epsilon']
+    best_epsilon = study.best_params['epsilon']
     best_alpha = study.best_params['alpha']
-    return result, best_alpha, gamma, epsilon
+    best_f_epsilon = study.best_params['f_epsilon']
+    best_decay_rate = study.best_params['decay_rate']
+    return result, best_alpha, best_epsilon, best_f_epsilon, best_decay_rate
 
 
 def create_connection(path):
@@ -467,13 +478,21 @@ def create_connection(path):
     return connection
 
 
-def finalTest(best_alpha, best_gamma, best_epsilon, basicStrategy=False):
-    n_train = 50 * MILLION
+def finalTest(best_alpha, best_gamma, best_epsilon, best_final_epsilon, best_decay_rate, basicStrategy=False, learnLateSplit=False):
+    n_train = 20 * MILLION
     n_test = 10 * MILLION
 
-    agent = QAgent(best_alpha, best_gamma, best_epsilon, basicStrategy)
+    agent = QAgent(best_alpha, best_gamma, best_epsilon, best_final_epsilon, best_decay_rate, basicStrategy)
     if not basicStrategy:
         agent.train(n_train)
+    if learnLateSplit :
+        agent.Q_table[2] = CreateQTable((2, 12, 1), ['S', 'H', 'X', 'D', 'P'])
+        agent.gamma = 0.1
+        agent.alpha = 0.001
+        agent.epsilon = 0.7
+        agent.final_epsilon = 0.2
+        agent.train(n_train//3, onlyPairs=True)
+
     wins_rate, rewards = agent.test(n_test)
 
     print('\t\t\tHard')
@@ -520,14 +539,22 @@ def main():
     # -107871.5 and parameters: {'alpha': 0.004993279721394013, 'gamma': 0.7798829655701662, 'epsilon': 1.0}.
     # -97437.0 and parameters: {'alpha': 0.0014432395677060068, 'gamma': 0.7491076134854117, 'epsilon': 0.9000000000000001}
     # -84888.0 and parameters: {'alpha': 0.0020991386306812507, 'gamma': 0.9306406087558762, 'epsilon': 1.0}.
-    best_result = [-84888.0, 0.9306406087558762, 0.0020991386306812507, 1.0]
+    # -83525.5 and parameters: {'alpha': 0.0013426092343642878, 'gamma': 0.8720959544864512, 'epsilon': 1.0}.
+    # value: -61062.5 and parameters: {'alpha': 0.0016639830031509864, 'epsilon': 1.0}
+    # -59056.0 and parameters: {'alpha': 0.0004090330318976022, 'epsilon': 1.0, 'f_epsilon': 0.021475900072008624, 'decay_rate': 1.4757112667433222e-09}
+    # -56423.5 and parameters: {'alpha': 0.0004999203318563665, 'epsilon': 1.0, 'f_epsilon': 0.29598784420584845, 'decay_rate': 1.2343289349378915e-09}
+    # best_result = [-56267.0, 0.0004999203318563665, 1, 0.29598784420584845, 1- (1.2343289349378915e-09)]
+    best_result = [-56267.0, 0.00030028805421964045, 1, 0.2826914780047174, 1- (6.052041223193185e-10)]
+    # best_result = [-56267.0, 0.00030028805421964045, 1, 1, 1]
 
     print(best_result)
-    best_gamma = best_result[1]
-    best_alpha = best_result[2]
-    best_epsilon = best_result[3]
+    best_gamma = 1
+    best_alpha = best_result[1]
+    best_epsilon = best_result[2]
+    best_final_epsilon = best_result[3]
+    best_decay_rate = best_result[4]
 
-    finalTest(best_alpha, best_gamma, best_epsilon, basicStrategy=False)
+    finalTest(best_alpha, best_gamma, best_epsilon, best_final_epsilon, best_decay_rate, basicStrategy=False, learnLateSplit=True)
 
 
 if __name__ == '__main__':
