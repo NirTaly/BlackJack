@@ -3,6 +3,7 @@ import os
 import itertools
 import simulator as sym
 import numpy as np
+import matplotlib.pyplot as plt
 import random
 from tqdm import tqdm
 import pandas as pd
@@ -204,6 +205,7 @@ class QAgent:
     def __init__(self, alpha, gamma, epsilon, final_epsilon, decay_rate, basicStrategy=False):
         # The BJ Simulator
         self.Game = sym.Game()
+        self.basicStrategy = basicStrategy
 
         if not basicStrategy:
             # Init the table with q_values: HARD(18X10) X SOFT(9X10) X SPLIT(8X10) X ACTION(5)
@@ -258,14 +260,15 @@ class QAgent:
 
         old_value = self.Q_table[game_state][(player_state, self.Game.dealer_state)][action]
         reward = 0
+        next_max = 0
         for i in range(2):
             game_state, player_state, action, next_game_state, next_player_state = hands_params[i]
-            next_max = max(itertools.islice(
+            next_max += max(itertools.islice(
                 self.Q_table[next_game_state][(next_player_state, self.Game.dealer_state)].values(), 2))
 
-            new_value = self.alpha * (reward + self.gamma * next_max - old_value)
+        new_value = self.alpha * (reward + self.gamma * next_max - old_value)
 
-            self.Q_table[game_state][(player_state, self.Game.dealer_state)][action] += new_value
+        self.Q_table[game_state][(player_state, self.Game.dealer_state)][action] += new_value
 
     def get_action(self, game_state, player_state, dealer_state, explore=True):
         if (random.uniform(0, 1) < self.epsilon) and explore:
@@ -368,7 +371,7 @@ class QAgent:
         return rewards, wins
 
     def train(self, n_train, onlyPairs=False):
-        for i in tqdm(range(0, n_train)):
+        for i in tqdm(range(1, n_train+1)):
             self.update_epsilon()
             self.run_loop(True,onlyPairs)
 
@@ -377,12 +380,16 @@ class QAgent:
         hands = 0
         rewards = 0
         self.Game.shoe.rebuild()
-        for _ in tqdm(range(0, n_test)):
+        objective_list = []
+        for _ in tqdm(range(1, n_test+1)):
             reward, wins = self.run_loop(False)
             rewards += reward
             total_wins += wins
             hands += 1 + self.Game.isSplit
-        return total_wins / hands, rewards
+            objective_list.append(rewards)
+            if self.Game.isSplit:
+                objective_list.append(rewards)
+        return total_wins / hands, rewards, objective_list, range(1,hands+1)
 
 
 def validation(gamma):
@@ -458,7 +465,7 @@ def learnOptuna():
     sqlite = create_connection('BJ_30M.db')
 
     study = optuna.create_study(direction="maximize", storage='sqlite:///BJ_30M.db', load_if_exists=True,
-                                study_name='InalDinak')
+                                study_name='optuna')
     with parallel_backend('multiprocessing'):  # Overrides `prefer="threads"` to use multiprocessing.
         study.optimize(objective, n_trials=500, n_jobs=1, show_progress_bar=True)
 
@@ -477,23 +484,41 @@ def create_connection(path):
 
     return connection
 
+def plotResults(agent, obj_list, hand_num_list):
+    obj_list = np.array(obj_list)
+    hand_num_list = np.array(hand_num_list)
+    obj_list /= -hand_num_list
+
+    fig, ax = plt.subplots(figsize=(5, 5))
+    ax.plot(hand_num_list, obj_list)
+    if agent.basicStrategy:
+        ax.set_title('House Edge - Basic Strategy')
+    else:
+        ax.set_title('House Edge\n'+r'$\gamma={' + f'{1:g}' + r'}$, $\alpha={' + f'{agent.alpha:g}' + r'}$')
+    ax.set_xlabel('Hand')
+    ax.set_ylabel('Reward/Hands')
+    ax.set_ylim(0, 0.007)
+    ax.grid()
+    fig.savefig("plot_bs_" + str(agent.basicStrategy) +".png")
+    plt.show()
 
 def finalTest(best_alpha, best_gamma, best_epsilon, best_final_epsilon, best_decay_rate, basicStrategy=False, learnLateSplit=False):
-    n_train = 20 * MILLION
+    n_train = 500 * MILLION
     n_test = 10 * MILLION
+    onlyPairs = learnLateSplit
 
     agent = QAgent(best_alpha, best_gamma, best_epsilon, best_final_epsilon, best_decay_rate, basicStrategy)
     if not basicStrategy:
         agent.train(n_train)
-    if learnLateSplit :
+    if learnLateSplit:
         agent.Q_table[2] = CreateQTable((2, 12, 1), ['S', 'H', 'X', 'D', 'P'])
-        agent.gamma = 0.1
-        agent.alpha = 0.001
-        agent.epsilon = 0.7
-        agent.final_epsilon = 0.2
-        agent.train(n_train//3, onlyPairs=True)
+        # agent.gamma = 0.1
+        # agent.alpha = 0.001
+        agent.epsilon = 0.5
+        # agent.final_epsilon = 0.2
+        agent.train(n_train//5, onlyPairs)
 
-    wins_rate, rewards = agent.test(n_test)
+    wins_rate, rewards, obj_list, hand_num_list= agent.test(n_test)
 
     print('\t\t\tHard')
     hard_policy = CreatePolicyTable(agent.Q_table[0])
@@ -512,9 +537,11 @@ def finalTest(best_alpha, best_gamma, best_epsilon, best_final_epsilon, best_dec
     print(pd.DataFrame(split_policy[2:12, 2:], columns=[2, 3, 4, 5, 6, 7, 8, 9, 10, 'A'], index=list(range(2, 12))))
     # , rows=['2,2', '3,3', '4,4', '5,5', '6,6', '7,7', '8,8', '9,9', '10,10', 'A,A']
 
+    print(f"basicStrategy = {basicStrategy}\tlearnLateSplit = {learnLateSplit}\t onlyPairs = {onlyPairs}")
     print(f"Win rate: {wins_rate}")
     print(f"Rewards : {rewards}")
 
+    plotResults(agent, obj_list, hand_num_list)
 
 def main():
     """ Rewards:
@@ -529,23 +556,15 @@ def main():
     """
 
     # best_result = learnOptuna()
-    # -73996.0 and parameters: {'alpha': 0.001492950854301212, 'gamma': 0.9131572889821157,'epsilon': 0.3741137556539688}.
-    # -67898.5 and parameters: {'alpha': 0.0004803668759456502, 'gamma': 1.1962376455954642, 'epsilon': 0.6664046431453283}.
-    # {'alpha': 0.001098144772126204, 'gamma': 1.074120810719544, 'epsilon': 0.9072751496865936}
-    # -66680.5 and parameters: {'alpha': 0.0006297423928461678, 'gamma': 1.1792443587862564, 'epsilon': 0.8986248216065134}
-    # -10076.0 and parameters: {'alpha': 0.0023883300020830127, 'gamma': 0.7982205072789618, 'epsilon': 0.8}.
-    # -10071.0 and parameters: {'alpha': 0.0020742381406755835, 'gamma': 0.445944098197451, 'epsilon': 0.8}.
-    # -9686.0 and parameters: {'alpha': 0.002721225490977786, 'gamma': 0.7737094148769824, 'epsilon': 0.7}.
-    # -107871.5 and parameters: {'alpha': 0.004993279721394013, 'gamma': 0.7798829655701662, 'epsilon': 1.0}.
-    # -97437.0 and parameters: {'alpha': 0.0014432395677060068, 'gamma': 0.7491076134854117, 'epsilon': 0.9000000000000001}
-    # -84888.0 and parameters: {'alpha': 0.0020991386306812507, 'gamma': 0.9306406087558762, 'epsilon': 1.0}.
-    # -83525.5 and parameters: {'alpha': 0.0013426092343642878, 'gamma': 0.8720959544864512, 'epsilon': 1.0}.
-    # value: -61062.5 and parameters: {'alpha': 0.0016639830031509864, 'epsilon': 1.0}
-    # -59056.0 and parameters: {'alpha': 0.0004090330318976022, 'epsilon': 1.0, 'f_epsilon': 0.021475900072008624, 'decay_rate': 1.4757112667433222e-09}
-    # -56423.5 and parameters: {'alpha': 0.0004999203318563665, 'epsilon': 1.0, 'f_epsilon': 0.29598784420584845, 'decay_rate': 1.2343289349378915e-09}
     # best_result = [-56267.0, 0.0004999203318563665, 1, 0.29598784420584845, 1- (1.2343289349378915e-09)]
-    best_result = [-56267.0, 0.00030028805421964045, 1, 0.2826914780047174, 1- (6.052041223193185e-10)]
+    # best_result = [-56267.0, 0.00030028805421964045, 1, 0.2826914780047174, 1- (6.052041223193185e-10)]
     # best_result = [-56267.0, 0.00030028805421964045, 1, 1, 1]
+    # best_result = [-53761.0, 0.0006583044027324456, 1, 26654425630519774, 1 - (4.881918202338584e-10)]
+    # best_result = [-52376.0, 0.0005720263618453814, 1, 0.14986966254235395, 1 - (5.796720039295601e-10)]
+    # best_result = [-52153.0, 0.00034787590365009045, 1, 0.14939479656337815, 1 - (2.926253708388643e-10)]
+    # best_result = [-43221.0, 0.0009673773214241886, 1, 0.2, 1 - (5.796720039295601e-10)]
+    # best_result = [-40615.5, 0.002558204095711428, 1, 0.2, 1 - (5.796720039295601e-10)]
+    best_result = [-36578.0, 0.0010290963909385185, 1, 0.2, 1 - (5.796720039295601e-10)]
 
     print(best_result)
     best_gamma = 1
@@ -554,8 +573,7 @@ def main():
     best_final_epsilon = best_result[3]
     best_decay_rate = best_result[4]
 
-    finalTest(best_alpha, best_gamma, best_epsilon, best_final_epsilon, best_decay_rate, basicStrategy=False, learnLateSplit=True)
-
+    finalTest(best_alpha, best_gamma, best_epsilon, best_final_epsilon, best_decay_rate, basicStrategy=False, learnLateSplit=False)
 
 if __name__ == '__main__':
     main()
