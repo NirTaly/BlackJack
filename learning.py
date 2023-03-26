@@ -11,6 +11,8 @@ import multiprocessing as mp
 import optuna
 # from joblib import parallel_backend
 import sqlite3
+import matplotlib
+matplotlib.use('Agg')
 
 action_dict = {0: 'S', 1: 'H', 2: 'X', 3: 'D', 4: 'P'}
 MILLION = 1000000
@@ -207,6 +209,8 @@ class QAgent:
         self.Game = sym.Game()
         self.basicStrategy = basicStrategy
 
+        self.countDict = dict.fromkeys(range(-50,50), 0)
+
         if not basicStrategy:
             # Init the table with q_values: HARD(18X10) X SOFT(9X10) X SPLIT(8X10) X ACTION(5)
             # 'SD' = stand after double - pseudo state so don't mix stand-after-hit with stand-after-double
@@ -319,6 +323,7 @@ class QAgent:
 
     def run_loop(self, explore, onlyPairs=False):
         game_state, player_state = self.Game.reset_hands(onlyPairs)
+        count = self.Game.get_count()
         reward, done = self.handleBJ(explore)
         last_split_hands_parameters = []
         for i, _ in enumerate(self.Game.playerCards):
@@ -368,6 +373,7 @@ class QAgent:
         else:
             wins = 1 if (reward > 0) else 0
 
+        self.countDict[count] += rewards
         return rewards, wins
 
     def train(self, n_train, onlyPairs=False):
@@ -492,18 +498,33 @@ def plotResults(agent, obj_list, hand_num_list):
     fig, ax = plt.subplots(figsize=(5, 5))
     ax.plot(hand_num_list, obj_list)
     if agent.basicStrategy:
-        ax.set_title('House Edge - Basic Strategy')
+        ax.set_title('House Edge\nBasic Strategy')
     else:
         ax.set_title('House Edge\n'+r'$\gamma={' + f'{1:g}' + r'}$, $\alpha={' + f'{agent.alpha:g}' + r'}$')
     ax.set_xlabel('Hand')
     ax.set_ylabel('Reward/Hands')
     ax.set_ylim(0, 0.007)
     ax.grid()
-    fig.savefig("plot_bs_" + str(agent.basicStrategy) +".png")
+    fig.savefig("plot_bs_" + str(agent.basicStrategy) + "2" +".png", bbox_inches="tight")
+    #fig.savefig("plot_bs_" + str(agent.basicStrategy) + "1" +".png")
     plt.show()
 
+def color_table(val):
+    if val =='H':
+        color = 'red'
+    elif val == 'S':
+        color = 'yellow'
+    elif val == 'D':
+        color = 'blue'
+    elif val == 'X':
+        color = 'white'
+    else: #'P'
+        color = 'green'
+
+    return 'color: %s' % color
+    
 def finalTest(best_alpha, best_gamma, best_epsilon, best_final_epsilon, best_decay_rate, basicStrategy=False, learnLateSplit=False):
-    n_train = 500 * MILLION
+    n_train = 1 * MILLION
     n_test = 10 * MILLION
     onlyPairs = learnLateSplit
 
@@ -520,15 +541,48 @@ def finalTest(best_alpha, best_gamma, best_epsilon, best_final_epsilon, best_dec
 
     wins_rate, rewards, obj_list, hand_num_list= agent.test(n_test)
 
+    print(agent.countDict)
+
+    cell_hover = {
+    "selector": "td:hover",
+    "props": [("background-color", "#FFFFE0")]
+    }
+    index_names = {
+        "selector": ".index_name",
+        "props": "font-style: italic; color: darkgrey; font-weight:normal;"
+    }
+    headers = {
+        "selector": "th:not(.index_name)",
+        "props": "background-color: #a3a2a2; color: white;"
+    }
+
+    properties = {"border": "1px solid black", "width": "65px", "text-align": "center"}
+
     print('\t\t\tHard')
     hard_policy = CreatePolicyTable(agent.Q_table[0])
     print(pd.DataFrame(hard_policy[4:, 2:], columns=[2, 3, 4, 5, 6, 7, 8, 9, 10, 'A'], index=list(range(4, 22))))
+
+    hard = pd.DataFrame(hard_policy[4:, 2:], columns=[2, 3, 4, 5, 6, 7, 8, 9, 10, 'A'], index=list(range(4, 22))).style.applymap(color_table)
+    html = hard.format(precision=2).set_table_styles([cell_hover, index_names, headers]).set_properties(**properties).to_html()
+    
+    # write html to file
+    text_file = open("hard.html", "w")
+    text_file.write(html)
+    text_file.close()
 
     print()
 
     print('\t\t\tSoft')
     soft_policy = CreatePolicyTable(agent.Q_table[1])
     print(pd.DataFrame(soft_policy[13:, 2:], columns=[2, 3, 4, 5, 6, 7, 8, 9, 10, 'A'], index=list(range(13, 22))))
+
+    soft = pd.DataFrame(soft_policy[13:, 2:], columns=[2, 3, 4, 5, 6, 7, 8, 9, 10, 'A'], index=list(range(13, 22))).style.applymap(color_table)
+    html = soft.format(precision=2).set_table_styles([cell_hover, index_names, headers]).set_properties(**properties).to_html()
+    
+    # write html to file
+    text_file = open("soft.html", "w")
+    text_file.write(html)
+    text_file.close()
 
     print()
 
@@ -537,11 +591,32 @@ def finalTest(best_alpha, best_gamma, best_epsilon, best_final_epsilon, best_dec
     print(pd.DataFrame(split_policy[2:12, 2:], columns=[2, 3, 4, 5, 6, 7, 8, 9, 10, 'A'], index=list(range(2, 12))))
     # , rows=['2,2', '3,3', '4,4', '5,5', '6,6', '7,7', '8,8', '9,9', '10,10', 'A,A']
 
+    split = pd.DataFrame(split_policy[2:12, 2:], columns=[2, 3, 4, 5, 6, 7, 8, 9, 10, 'A'], index=list(range(2, 12))).style.applymap(color_table)
+    html = split.format(precision=2).set_table_styles([cell_hover, index_names, headers]).set_properties(**properties).to_html()
+    
+    # write html to file
+    text_file = open("split.html", "w")
+    text_file.write(html)
+    text_file.close()
+
     print(f"basicStrategy = {basicStrategy}\tlearnLateSplit = {learnLateSplit}\t onlyPairs = {onlyPairs}")
     print(f"Win rate: {wins_rate}")
     print(f"Rewards : {rewards}")
 
     plotResults(agent, obj_list, hand_num_list)
+
+
+def color_table(x):
+    if (x == 'P'):
+        return "background-color: #2eee34; color: black; font-weight: bold;" 
+    elif (x == 'S'):
+        return "background-color: #eefa07; color: black; font-weight: bold;" 
+    elif (x == 'H'):
+        return "background-color: #fa0000; color: black; font-weight: bold;" 
+    elif (x == 'D'):
+        return "background-color: #0000fa; color: black; font-weight: bold;" 
+    elif (x == 'X'):
+        return "background-color: #ffffff; color: black; font-weight: bold;"
 
 def main():
     """ Rewards:
@@ -561,10 +636,11 @@ def main():
     # best_result = [-56267.0, 0.00030028805421964045, 1, 1, 1]
     # best_result = [-53761.0, 0.0006583044027324456, 1, 26654425630519774, 1 - (4.881918202338584e-10)]
     # best_result = [-52376.0, 0.0005720263618453814, 1, 0.14986966254235395, 1 - (5.796720039295601e-10)]
-    # best_result = [-52153.0, 0.00034787590365009045, 1, 0.14939479656337815, 1 - (2.926253708388643e-10)]
+    best_result = [-50775, 0.0002903031868228513, 1, 0.1706443333378505, 1 - (1.4356609226904362e-10)]
     # best_result = [-43221.0, 0.0009673773214241886, 1, 0.2, 1 - (5.796720039295601e-10)]
     # best_result = [-40615.5, 0.002558204095711428, 1, 0.2, 1 - (5.796720039295601e-10)]
-    best_result = [-36578.0, 0.0010290963909385185, 1, 0.2, 1 - (5.796720039295601e-10)]
+    # best_result = [-36578.0, 0.0010290963909385185, 1, 0.2, 1 - (5.796720039295601e-10)]
+    # best_result = [-34776.0, 0.0021999140060916115, 1, 0.2, 1 - (5.796720039295601e-10)]
 
     print(best_result)
     best_gamma = 1
@@ -573,7 +649,7 @@ def main():
     best_final_epsilon = best_result[3]
     best_decay_rate = best_result[4]
 
-    finalTest(best_alpha, best_gamma, best_epsilon, best_final_epsilon, best_decay_rate, basicStrategy=False, learnLateSplit=False)
-
+    finalTest(best_alpha, best_gamma, best_epsilon, best_final_epsilon, best_decay_rate, basicStrategy=True, learnLateSplit=False)
+    
 if __name__ == '__main__':
     main()

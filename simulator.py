@@ -5,6 +5,7 @@ cards_dict = {1: "A", 2: "2", 3: "3", 4: "4", 5: "5", 6: "6", 7: "7", 8: "8", 9:
               13: "K"}
 cards_values = {1: 11, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8, 9: 9, 10: 10, 11: 10, 12: 10, 13: 10}
 
+cards_count = {1: -1, 2: 1, 3: 1, 4: 1, 5: 1, 6: 1, 7: 0, 8: 0, 9: 0, 10: -1, 11: -1, 12: -1, 13: -1}
 
 class Shoe:
     def __init__(self, n=6):
@@ -16,9 +17,14 @@ class Shoe:
         if not self.cards:
             self.rebuild()
 
-        return self.cards.pop(0)
+        card = self.cards.pop(0)
+        self.runningCount += cards_count[card]
+        self.trueCount = self.runningCount # / self.n
+        return card
 
     def rebuild(self):
+        self.runningCount = 0
+        self.trueCount = 0
         self.cards = [*range(1, 14)] * 4 * self.n
         random.shuffle(self.cards)
 
@@ -201,6 +207,9 @@ class Game:
             dealer_sum = self.dealerMoves()
 
         return self.rewardHandler(dealer_sum, player_sums), True
+    
+    def get_count(self):
+        return self.shoe.trueCount
 
 # def main():
 #     game = Game()
