@@ -1,6 +1,10 @@
 import random
 from builtins import print
 
+DECK_SIZE=4*13              #13 cards, each have 4 shapes
+COUNT_MAX_VAL_DECK=(1)*5*4  #value of  1, 5 cards ([2..6]), each have 4 shapes
+COUNT_MIN_VAL_DECK=(-1)*5*4 #value of -1, 5 cards ([2..6]), each have 4 shapes
+
 cards_dict = {1: "A", 2: "2", 3: "3", 4: "4", 5: "5", 6: "6", 7: "7", 8: "8", 9: "9", 10: "10", 11: "J", 12: "Q",
               13: "K"}
 cards_values = {1: 11, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8, 9: 9, 10: 10, 11: 10, 12: 10, 13: 10}
@@ -16,15 +20,16 @@ class Shoe:
     def draw_card(self):
         if not self.cards:
             self.rebuild()
+        elif len(self.cards) % DECK_SIZE == 0:
+            self.rem_decks -= 1
 
         card = self.cards.pop(0)
-        self.runningCount += cards_count[card]
-        self.trueCount = self.runningCount # / self.n
+        self.running_count += cards_count[card]
         return card
 
     def rebuild(self):
-        self.runningCount = 0
-        self.trueCount = 0
+        self.running_count = 0
+        self.rem_decks = self.n
         self.cards = [*range(1, 14)] * 4 * self.n
         random.shuffle(self.cards)
 
@@ -32,6 +37,7 @@ class Shoe:
 class Game:
     def __init__(self, money=100, dealerStandSoft17=True, splitAcesAndDone=False):
         self.money = money
+        self.bet = 0
         self.shoe = Shoe()
         self.dealerStandSoft17=dealerStandSoft17
         self.splitAcesAndDone = splitAcesAndDone
@@ -58,6 +64,7 @@ class Game:
         self.isDouble = False
         self.currHand = 0
         self.first_move = True
+        self.bet = 0
 
         # card draw
         if not onlyPairs:
@@ -209,7 +216,7 @@ class Game:
         return self.rewardHandler(dealer_sum, player_sums), True
     
     def get_count(self):
-        return self.shoe.trueCount
+        return float(self.shoe.running_count) / self.shoe.rem_decks
 
 # def main():
 #     game = Game()
