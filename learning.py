@@ -3,6 +3,7 @@ import os
 import itertools
 import simulator as sim
 import basic_strategy as bs
+import common
 import numpy as np
 import matplotlib.pyplot as plt
 import random
@@ -16,7 +17,6 @@ import matplotlib
 matplotlib.use('Agg')
 
 action_dict = {0: 'S', 1: 'H', 2: 'X', 3: 'D', 4: 'P'}
-MILLION = 1000000
 
 def CreateQTable(player_state_tuple, legal_actions):
     Q_table = dict()
@@ -272,7 +272,6 @@ def autoValidation():
 
 
 def objective(trial):
-    n_learning = 30 * MILLION
     gamma = 1
     alpha = trial.suggest_float("alpha", low=1e-6, high=1e-1, log=True)
     epsilon = trial.suggest_float("epsilon", low=0.5, high=1, step=0.1)
@@ -281,11 +280,11 @@ def objective(trial):
 
     agent = QAgent(alpha, gamma, epsilon, f_epsilon, decay_rate)
     rewards = 0
-    for i in range(0, (2 * n_learning) // 3):
+    for i in range(0, (2 * common.n_learning) // 3):
         agent.update_epsilon()
         agent.run_loop(True)
     agent.Game.shoe.rebuild()
-    for _ in range(0, n_learning // 3):
+    for _ in range(0, common.n_learning // 3):
         reward, _ = agent.run_loop(False)
         rewards += reward
 
@@ -349,19 +348,17 @@ def color_table(val):
     return 'color: %s' % color
     
 def finalTest(best_alpha, best_gamma, best_epsilon, best_final_epsilon, best_decay_rate, basicStrategy=False, learnLateSplit=False):
-    n_train = 10 * MILLION
-    n_test = 10 * MILLION
     onlyPairs = learnLateSplit
 
     agent = QAgent(best_alpha, best_gamma, best_epsilon, best_final_epsilon, best_decay_rate, basicStrategy)
     if not basicStrategy:
-        agent.train(n_train)
+        agent.train(common.n_train)
     if learnLateSplit:
         agent.Q_table[2] = CreateQTable((2, 12, 1), ['S', 'H', 'X', 'D', 'P'])
         agent.epsilon = 0.5
-        agent.train(n_train//5, onlyPairs)
+        agent.train(common.n_train//5, onlyPairs)
 
-    wins_rate, rewards, obj_list, hand_num_list= agent.test(n_test)
+    wins_rate, rewards, obj_list, hand_num_list= agent.test(common.n_test)
 
     cell_hover = {
     "selector": "td:hover",

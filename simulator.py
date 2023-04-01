@@ -1,9 +1,6 @@
+import common
 import random
 from builtins import print
-
-DECK_SIZE=4*13              #13 cards, each have 4 shapes
-COUNT_MAX_VAL_DECK=(1)*5*4  #value of  1, 5 cards ([2..6]), each have 4 shapes
-COUNT_MIN_VAL_DECK=(-1)*5*4 #value of -1, 5 cards ([2..6]), each have 4 shapes
 
 cards_dict = {1: "A", 2: "2", 3: "3", 4: "4", 5: "5", 6: "6", 7: "7", 8: "8", 9: "9", 10: "10", 11: "J", 12: "Q",
               13: "K"}
@@ -12,7 +9,7 @@ cards_values = {1: 11, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8, 9: 9, 10: 10, 1
 cards_count = {1: -1, 2: 1, 3: 1, 4: 1, 5: 1, 6: 1, 7: 0, 8: 0, 9: 0, 10: -1, 11: -1, 12: -1, 13: -1}
 
 class Shoe:
-    def __init__(self, n=6):
+    def __init__(self, n=common.num_of_decks):
         self.n = n
         self.cards = []
         self.rebuild()
@@ -20,7 +17,7 @@ class Shoe:
     def draw_card(self):
         if not self.cards:
             self.rebuild()
-        elif len(self.cards) % DECK_SIZE == 0:
+        elif len(self.cards) % common.DECK_SIZE == 0:
             self.rem_decks -= 1
 
         card = self.cards.pop(0)
@@ -35,12 +32,13 @@ class Shoe:
 
 
 class Game:
-    def __init__(self, money=100, dealerStandSoft17=True, splitAcesAndDone=False):
-        self.money = money
+    def __init__(self):
+        self.money = common.initial_money
         self.bet = 0
+        self.minBet = common.min_bet
         self.shoe = Shoe()
-        self.dealerStandSoft17=dealerStandSoft17
-        self.splitAcesAndDone = splitAcesAndDone
+        self.dealerStandSoft17 = common.dealerStandSoft17
+        self.splitAcesAndDone = common.splitAcesAndDone
 
     def __handRewadHandler(self, dealer_sum, player_sum):
         reward = 0
@@ -126,24 +124,21 @@ class Game:
                 hand_sum -= 10
         return hand_sum, game_state
 
-    # def manageBet(self, dealer_sum, player_sums, bet) -> int:
-    #     retval = 0
-    #     for i, _ in enumerate(self.playerCards):
-    #         if dealer_sum == player_sums[i]:
-    #             self.money += bet[i]
-    #         elif dealer_sum > 21:
-    #             self.money += 2 * bet[i]
-    #             retval += 1 + self.isDouble
-    #         elif dealer_sum < player_sums[i] <= 21:
-    #             self.money += 2 * bet[i]
-    #             retval += 1 + self.isDouble
-    #         else:
-    #             retval -= 1 + self.isDouble
-    #
-    #     return retval
+    def manageBets(self, dealer_sum, player_sums):
+        for playet_sum in player_sums:
+            __manageBet(dealer_sum, player_sum)
+
+    def __manageBet(self, dealer_sum, player_sum):
+        if dealer_sum == player_sum:
+            self.money += self.bet
+        elif dealer_sum < player_sum <= 21 or dealer_sum > 21:
+            self.money += 2 * self.bet
+        else:
+            pass
 
     def rewardHandler(self, dealer_sum, player_sums):
         reward1 = self.__handRewadHandler(dealer_sum, player_sums[0])
+        self.manageBets(dealer_sum, player_sums)
         if len(player_sums) == 2:
             reward2 = self.__handRewadHandler(dealer_sum, player_sums[1])
             reward_tuple = (reward1, reward2)
@@ -161,15 +156,19 @@ class Game:
         elif action == "D":
             self.isDouble = True
             hand.append(self.shoe.draw_card())
+            self.money -= self.bet
+            self.bet *= 2
         elif action == "P":
             self.isSplit = True
             self.playerCards.append([hand[1]])
             self.playerCards[0].pop()
             self.playerCards[0].append(self.shoe.draw_card())
             self.playerCards[1].append(self.shoe.draw_card())
+            self.money -= self.bet
 
         elif action == "X":
             reward = -0.5
+            self.money += 0.5 * self.bet
             done = True
 
         sumHand, game_state = self.sum_hands(hand)
@@ -183,7 +182,6 @@ class Game:
         return game_state, sumHand, reward, done
 
     def dealerMoves(self):
-        # Dealer Moves
         while True:
             dealer_sum, _ = self.sum_hands(self.dealerCards)
             if (17 < dealer_sum) or  (17 == dealer_sum and self.dealerStandSoft17):
@@ -217,6 +215,10 @@ class Game:
     
     def get_count(self):
         return float(self.shoe.running_count) / self.shoe.rem_decks
+    
+    def place_bet(self, bet):
+        self.bet = bet
+        self.money -= bet
 
 # def main():
 #     game = Game()
