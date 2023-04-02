@@ -1,7 +1,15 @@
+from tqdm import tqdm
 import learning
 import simulator as sim
 import basic_strategy as bs
 import common
+import itertools
+from pprint import pprint
+import matplotlib
+import matplotlib.pyplot as plt
+matplotlib.use( 'tkagg' )
+
+
 
 def initCountDict(game):
     total_min_count_val = common.COUNT_MIN_VAL_DECK * game.shoe.n
@@ -9,15 +17,47 @@ def initCountDict(game):
     d = dict()
 
     for running_count in range(total_min_count_val, total_max_count_val+1):
-        for decks in range(1,game.shoe.n):
-            d[float(running_count)/decks] = 0
+        for decks in range(1,game.shoe.n + 1):
+            d[float(running_count)/decks] = (0,0)
     return d
 
+def normalize(d : dict):
+    norm = dict()
+    for key in d.keys():
+        (rewards, hands) = d[key]
+        if(hands != 0):
+            if hands < 10000:
+                norm[key] = 0
+            else:
+                norm[key] = rewards / hands
+            
+    return norm
+
+def getOnlyRewards(d : dict):
+    only = dict()
+    for key in d.keys():
+        (rewards, hands) = d[key]
+        if(hands != 0):
+            only[key] = rewards
+    return only
+
+def lps_dict(d: dict):
+    lps_dict = dict()
+    for key in d.keys():
+        if abs(key) < 20:
+            rounded = round(key,1)
+            if rounded not in lps_dict:
+                lps_dict[rounded] = d[key]
+            else:
+                (lrewards, lhands) = lps_dict[rounded]
+                (rrewards, rhands) = d[key]
+                lps_dict[rounded] = (lrewards + rrewards, lrewards + lhands)
+    return lps_dict
 class CountAgent:
     def __init__(self):
         self.game = sim.Game()
         self.Q_table = bs.initBasicStrategy()
-        self.countDict = initCountDict()
+        self.countDict = initCountDict(self.game)
     
     def handleBJ(self):
         reward, done = 0, False
@@ -33,7 +73,7 @@ class CountAgent:
     
     def getAction(self, game_state, player_state, dealer_state):
         if self.game.first_move:
-            player_state = learning._playerStateFromGameState(self.game, game_state, player_state)
+            player_state = learning.playerStateFromGameState(self.game, game_state, player_state)
             return max(self.Q_table[game_state][(player_state, dealer_state)],
                        key=self.Q_table[game_state][(player_state, dealer_state)].get)
 
@@ -58,32 +98,46 @@ class CountAgent:
 
                 game_state, player_state, reward, done = self.game.step(action)
 
-            if self.Game.isSplit:
-                if self.Game.playerCards[0][0] == 1 and self.Game.splitAcesAndDone:
+            if self.game.isSplit:
+                if self.game.playerCards[0][0] == 1 and self.game.splitAcesAndDone:
                     break
-                player_state, game_state = self.Game.sum_hands(self.Game.playerCards[self.Game.currHand])
+                player_state, game_state = self.game.sum_hands(self.game.playerCards[self.game.currHand])
                 done = False
             else:
                 rewards = reward
 
-        if self.Game.isSplit:
+        if self.game.isSplit:
             rewards = sum(reward)
             wins = sum(1 for w in reward if w > 0)
         else:
             wins = 1 if (reward > 0) else 0
 
-        self.countDict[count] += rewards
+        (count_rewards, touched) = self.countDict[count]
+        self.countDict[count] = (count_rewards + rewards, touched + 1)
         return rewards, wins
 
-def batchGames(countAgent):
-    self.game.shoe.rebuild()
-    while self.game.money > self.game.minBet:
-        self.runLoop()
+def batchGames(countAgent: CountAgent):
+    countAgent.game.shoe.rebuild()
+    while countAgent.game.money > countAgent.game.minBet:
+        print("Money: " + str(countAgent.game.money) + "\r") 
+        countAgent.runLoop()
 
 def finalTest():
     countAgent = CountAgent()
     for _ in tqdm(range(1, common.n_test+1)):
-        reward, wins = self.run_loop(False)
+        rewards, wins = countAgent.runLoop()
+    lps = lps_dict(countAgent.countDict)
+    only = getOnlyRewards(lps)
+    normalized_dict = normalize(lps)
+
+    fig = plt.figure(figsize=(8,5))
+    fig.add_subplot(211)
+    plt.title("normalized")
+    plt.bar(*zip(*normalized_dict.items()))
+    fig.add_subplot(212)
+    plt.bar(*zip(*only.items()))
+    plt.title("not normalized")
+    plt.show()
 
 def main():
     finalTest()

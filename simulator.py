@@ -17,6 +17,8 @@ class Shoe:
     def draw_card(self):
         if not self.cards:
             self.rebuild()
+        elif len(self.cards) == common.DECK_SIZE * common.num_of_decks:
+            pass
         elif len(self.cards) % common.DECK_SIZE == 0:
             self.rem_decks -= 1
 
@@ -125,8 +127,8 @@ class Game:
         return hand_sum, game_state
 
     def manageBets(self, dealer_sum, player_sums):
-        for playet_sum in player_sums:
-            __manageBet(dealer_sum, player_sum)
+        for player_sum in player_sums:
+            self.__manageBet(dealer_sum, player_sum)
 
     def __manageBet(self, dealer_sum, player_sum):
         if dealer_sum == player_sum:

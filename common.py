@@ -9,7 +9,7 @@ MILLION = 1000000
 
 n_learning = 30 * MILLION
 n_train = 10 * MILLION
-n_test = 10 * MILLION
+n_test = int(10 * MILLION)
 
 # Rules
 dealerStandSoft17 = True
