@@ -88,8 +88,8 @@ class CountAgent:
         return 1
 
     def runLoop(self):
-        self.game.place_bet(self.getBet())
         game_state, player_state = self.game.reset_hands()
+        self.game.place_bet(self.getBet())
         count = self.game.get_count()
         reward, done = self.handleBJ()
         for i, _ in enumerate(self.game.playerCards):

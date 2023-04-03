@@ -221,18 +221,41 @@ class Game:
     def place_bet(self, bet):
         self.bet = bet
         self.money -= bet
+    
+    def handleBJ(self):
+        reward, done = 0, False
+        player_state, _ = self.sum_hands(self.playerCards[0])
+        dealer_sum, _ = self.sum_hands(self.dealerCards)
+        if player_state == 21 or dealer_sum == 21:
+            reward = self.rewardHandler(dealer_sum, [player_state])
+            if reward > 0:
+                self.game.money += (5/2) * self.game.bet
+                reward *= 1.5
+            done = True
+        return reward, done
 
-# def main():
-#     game = Game()
-#     win_diff=0
-#     total=0
-#     print("your current budget is ", game.money)
-#     while (game.money > 0 and input("want to start new game? y/n\n") == "y"):
-#         win_diff += game.run_game()
-#         total+=1
-#         print("win/lose = ", win_diff, " total games = ", total)
-#         print("your current budget is ", game.money)
-#
-#
-# if __name__ == '__main__':
-#     main()
+
+def main():
+    game = Game()
+    done=0
+    print("your current budget is ", game.money)
+    while (game.money >= game.minBet):
+        game.reset_hands()
+        game.place_bet(int(input("place bet - min: " + str(game.minBet) + "\tmax: " + str(game.money) + ":\t")))
+        game.print_hands(False)
+        _ , done = game.handleBJ()
+        for _ in game.playerCards:
+            while not done:
+                _, _, _, done = game.step(str((input("action:\t"))).upper())
+                game.print_hands()
+            if game.isSplit:
+                if game.playerCards[0][0] == 1 and game.splitAcesAndDone:
+                    break
+                done = False
+
+        print("your current budget is ", game.money)
+        done = False
+
+
+if __name__ == '__main__':
+    main()
