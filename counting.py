@@ -41,17 +41,26 @@ def getOnlyRewards(d : dict):
             only[key] = rewards
     return only
 
+def getOnlyHands(d : dict):
+    only = dict()
+    for key in d.keys():
+        (_, hands) = d[key]
+        if(hands != 0):
+            only[key] = hands
+    return only
+
 def lps_dict(d: dict):
     lps_dict = dict()
     for key in d.keys():
         if abs(key) < 20:
-            rounded = round(key,1)
+            # rounded = round(key * 2) / 2
+            rounded = round(key)
             if rounded not in lps_dict:
                 lps_dict[rounded] = d[key]
             else:
                 (lrewards, lhands) = lps_dict[rounded]
                 (rrewards, rhands) = d[key]
-                lps_dict[rounded] = (lrewards + rrewards, lrewards + lhands)
+                lps_dict[rounded] = (lrewards + rrewards, lhands + rhands)
     return lps_dict
 class CountAgent:
     def __init__(self):
@@ -130,6 +139,10 @@ def finalTest():
     only = getOnlyRewards(lps)
     normalized_dict = normalize(lps)
 
+    # pprint(only)
+    # pprint(normalized_dict)
+    # pprint(getOnlyHands(lps))
+
     fig = plt.figure(figsize=(8,5))
     fig.add_subplot(211)
     plt.title("normalized")
@@ -138,6 +151,12 @@ def finalTest():
     plt.bar(*zip(*only.items()))
     plt.title("not normalized")
     plt.show()
+
+    # fig = plt.figure(figsize=(8,5))
+    # fig.add_subplot(111)
+    # plt.title("Histogram")
+    # plt.bar(*zip(*getOnlyHands(lps).items()))
+    # plt.show()
 
 def main():
     finalTest()
