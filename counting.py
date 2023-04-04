@@ -7,9 +7,10 @@ import itertools
 from pprint import pprint
 import matplotlib
 import matplotlib.pyplot as plt
-matplotlib.use( 'tkagg' )
+matplotlib.use( 'tkagg' ) 
 
-
+def roundCount(count):
+    return round(count * 2) / 2
 
 def initCountDict(game):
     total_min_count_val = common.COUNT_MIN_VAL_DECK * game.shoe.n
@@ -26,7 +27,7 @@ def normalize(d : dict):
     for key in d.keys():
         (rewards, hands) = d[key]
         if(hands != 0):
-            if hands < 10000:
+            if hands < 1000:
                 norm[key] = 0
             else:
                 norm[key] = rewards / hands
@@ -53,8 +54,7 @@ def lps_dict(d: dict):
     lps_dict = dict()
     for key in d.keys():
         if abs(key) < 20:
-            # rounded = round(key * 2) / 2
-            rounded = round(key)
+            rounded = roundCount(key)
             if rounded not in lps_dict:
                 lps_dict[rounded] = d[key]
             else:
@@ -93,12 +93,21 @@ class CountAgent:
 
     # function that place the best bet, probably according to Kelly criterion
     def getBet(self):
-        #TODO
-        return 1
+        count = roundCount(self.game.get_count())
+        if count < -20:
+            count = -20
+        elif count > 20:
+            count = 20
+        p = 0.5 + common.winrateDict[count]
+        q = 1 - p
+        bet = max (self.game.minBet, int(self.game.money * (p - q)))
+        return bet
 
     def runLoop(self):
         game_state, player_state = self.game.reset_hands()
         self.game.place_bet(self.getBet())
+        print(f"bet = {self.getBet()}")
+        # input()
         count = self.game.get_count()
         reward, done = self.handleBJ()
         for i, _ in enumerate(self.game.playerCards):
@@ -125,11 +134,31 @@ class CountAgent:
         self.countDict[count] = (count_rewards + rewards, touched + 1)
         return rewards, wins
 
-def batchGames(countAgent: CountAgent):
-    countAgent.game.shoe.rebuild()
-    while countAgent.game.money > countAgent.game.minBet:
-        print("Money: " + str(countAgent.game.money) + "\r") 
-        countAgent.runLoop()
+def batchGames():
+    # hands = 0
+
+    fig, ax = plt.subplots()
+    plt.xlabel('Hands')
+    plt.ylabel('Money')
+    plt.title("Money - Hands")
+    ax.set_yscale('log')
+    data = []
+    for i in range(5):
+        countAgent = CountAgent()
+        data.append(dict())
+        hands = 0
+        data[i][hands] = countAgent.game.money
+        while countAgent.game.money > countAgent.game.minBet and hands < 30000:
+            print("Money: " + str(countAgent.game.money) + f" , Hands = {hands}")#, end='\r') 
+            countAgent.runLoop()
+            hands +=1
+            if hands % 1000 == 0:
+                data[i][hands] = countAgent.game.money
+        ax.plot(*zip(*data[i].items()),label=f'{i}')
+    
+    plt.show()
+    
+
 
 def finalTest():
     countAgent = CountAgent()
@@ -139,8 +168,8 @@ def finalTest():
     only = getOnlyRewards(lps)
     normalized_dict = normalize(lps)
 
-    # pprint(only)
-    # pprint(normalized_dict)
+    pprint(only)
+    pprint(normalized_dict)
     # pprint(getOnlyHands(lps))
 
     fig = plt.figure(figsize=(8,5))
@@ -159,7 +188,8 @@ def finalTest():
     # plt.show()
 
 def main():
-    finalTest()
+    # finalTest()
+    batchGames()
 
 if __name__ == '__main__':
     main()
