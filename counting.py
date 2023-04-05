@@ -7,7 +7,8 @@ import itertools
 from pprint import pprint
 import matplotlib
 import matplotlib.pyplot as plt
-matplotlib.use( 'tkagg' ) 
+import numpy as np
+# matplotlib.use( 'tkagg' ) 
 
 def roundCount(count):
     return round(count * 2) / 2
@@ -67,6 +68,8 @@ class CountAgent:
         self.game = sim.Game()
         self.Q_table = bs.initBasicStrategy()
         self.countDict = initCountDict(self.game)
+        self.XVecs = []
+        self.YVec = []
     
     def handleBJ(self):
         reward, done = 0, False
@@ -93,22 +96,24 @@ class CountAgent:
 
     # function that place the best bet, probably according to Kelly criterion
     def getBet(self):
-        count = roundCount(self.game.get_count())
-        if count < -20:
-            count = -20
-        elif count > 20:
-            count = 20
-        p = 0.5 + common.winrateDict[count]
-        q = 1 - p
-        bet = max (self.game.minBet, int(self.game.money * (p - q)))
-        return bet
+        # count = roundCount(self.game.get_count())
+        # if count < -20:
+        #     count = -20
+        # elif count > 20:
+        #     count = 20
+        # p = 0.5 + common.winrateDict[count]
+        # q = 1 - p
+        # bet = max (self.game.minBet, int(self.game.money * (p - q)))
+        # return bet
+        return 1
 
     def runLoop(self):
         game_state, player_state = self.game.reset_hands()
         self.game.place_bet(self.getBet())
-        print(f"bet = {self.getBet()}")
+        # print(f"bet = {self.getBet()}")
         # input()
         count = self.game.get_count()
+        countVec = self.game.shoe.countVec
         reward, done = self.handleBJ()
         for i, _ in enumerate(self.game.playerCards):
             while not done:
@@ -132,6 +137,9 @@ class CountAgent:
 
         (count_rewards, touched) = self.countDict[count]
         self.countDict[count] = (count_rewards + rewards, touched + 1)
+        self.XVecs.append(np.array(countVec))
+        self.YVec.append(rewards)
+
         return rewards, wins
 
 def batchGames():
@@ -179,7 +187,16 @@ def finalTest():
     fig.add_subplot(212)
     plt.bar(*zip(*only.items()))
     plt.title("not normalized")
-    plt.show()
+    # plt.show()
+
+    # print(countAgent.XVecs)
+    X = np.c_[countAgent.XVecs]
+    Y = countAgent.YVec
+
+    print(X)
+    w = np.linalg.inv(X.T @ X) @ X.T @ Y
+    
+    print(w)
 
     # fig = plt.figure(figsize=(8,5))
     # fig.add_subplot(111)
@@ -188,8 +205,8 @@ def finalTest():
     # plt.show()
 
 def main():
-    # finalTest()
-    batchGames()
+    finalTest()
+    # batchGames()
 
 if __name__ == '__main__':
     main()

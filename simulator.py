@@ -1,5 +1,6 @@
 import common
 import random
+import numpy as np
 from builtins import print
 
 cards_dict = {1: "A", 2: "2", 3: "3", 4: "4", 5: "5", 6: "6", 7: "7", 8: "8", 9: "9", 10: "10", 11: "J", 12: "Q",
@@ -24,10 +25,13 @@ class Shoe:
 
         card = self.cards.pop(0)
         self.running_count += cards_count[card]
+        self.countVec[card] += 1
         return card
 
     def rebuild(self):
         self.running_count = 0
+        self.countVec = np.zeros(14)
+        self.countVec[0] = 1 # Bias always = 1
         self.rem_decks = self.n
         self.cards = [*range(1, 14)] * 4 * self.n
         random.shuffle(self.cards)
