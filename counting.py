@@ -10,7 +10,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 matplotlib.use( 'tkagg' ) 
 
-def roundCount(count):
+def roundCount(count, vec=False):
+    count  = round(count * 2)/2 if vec == False else count
     return round(count,1)
 
 def initCountDict(game):
@@ -51,10 +52,13 @@ def getOnlyHands(d : dict):
             only[key] = hands
     return only
 
-def lps_dict(d: dict):
+def getLPSLimit(vec=False):
+    return common.lps_limit_vec if vec else common.lps_limit
+
+def createLpsDict(d: dict, vec=False):
     lps_dict = dict()
     for key in d.keys():
-        if abs(key) < 80:
+        if abs(key) < getLPSLimit(vec):
             rounded = roundCount(key)
             if rounded not in lps_dict:
                 lps_dict[rounded] = d[key]
@@ -97,11 +101,11 @@ class CountAgent:
 
     # function that place the best bet, probably according to Kelly criterion
     def getBet(self,vec):
-        count = roundCount(self.game.get_count())
-        if count < -30:
-            count = -30
-        elif count > 30:
-            count = 30
+        count = roundCount(self.game.get_count(), vec)
+        if count < -1 * getLPSLimit():
+            count = -1 * getLPSLimit()
+        elif count > getLPSLimit():
+            count = getLPSLimit()
         if vec:
             p = 0.5 + common.winrateDictVec[count]
         else:
@@ -116,7 +120,8 @@ class CountAgent:
         count = self.game.get_count(vec=self.vec)
         countVec = np.array(self.game.shoe.countVec)
         game_state, player_state = self.game.reset_hands()
-        self.game.place_bet(self.getBet(self.vec))
+        self.game.place_bet(1)
+        #self.game.place_bet(self.getBet(self.vec))
         # print(f"bet = {self.getBet()}")
         # input()
         reward, done = self.handleBJ()
@@ -177,7 +182,7 @@ def finalTest(vec = False):
     countAgent = CountAgent(vec)
     for _ in tqdm(range(1, common.n_test+1)):
         rewards, wins = countAgent.runLoop()
-    lps = lps_dict(countAgent.countDict)
+    lps = createLpsDict(countAgent.countDict, vec)
     only = getOnlyRewards(lps)
     normalized_dict = normalize(lps)
 
@@ -217,8 +222,8 @@ def finalTest(vec = False):
     # plt.show()
 
 def main():
-    # finalTest(vec=True)
-    batchGames(vec=True)
+    finalTest(vec=True)
+    # batchGames(vec=True)
 
 if __name__ == '__main__':
     main()

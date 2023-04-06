@@ -9,7 +9,10 @@ MILLION = 1000000
 
 n_learning = 30 * MILLION
 n_train = 10 * MILLION
-n_test = int(10 * MILLION)
+n_test = int(100 * MILLION)
+
+lps_limit_vec = 80
+lps_limit = 20
 
 # Rules
 dealerStandSoft17 = True
