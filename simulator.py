@@ -9,6 +9,34 @@ cards_values = {1: 11, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8, 9: 9, 10: 10, 1
 
 cards_count = {1: -1, 2: 1, 3: 1, 4: 1, 5: 1, 6: 1, 7: 0, 8: 0, 9: 0, 10: -1, 11: -1, 12: -1, 13: -1}
 
+# cards_vec_count = {1: 3.0000138351807517,
+#  2: -2.1608127251395977,
+#  3: -2.2124137204218752,
+#  4: -2.8597579093383234,
+#  5: -3.849105379322544,
+#  6: -2.151426418733585,
+#  7: -1.399867220032774,
+#  8: 0.1732802126295234,
+#  9: 1.2350549817749765,
+#  10: 2.3928100436753543,
+#  11: 2.87195257914531,
+#  12: 2.456237237963214,
+#  13: 2.687722046769435}
+
+cards_vec_count = {1: -3.405512576167473,
+ 2: 2.024110858667368,
+ 3: 2.7366591327242342,
+ 4: 3.0668612970550293,
+ 5: 3.6798419561872158,
+ 6: 2.0601721008782796,
+ 7: 0.9064841219163626,
+ 8: 0.011724008086303002,
+ 9: -1.1091809639586039,
+ 10: -2.4927654024682546,
+ 11: -2.3318798552339963,
+ 12: -2.6477078757637806,
+ 13: -2.570703199428112}
+
 class Shoe:
     def __init__(self, n=common.num_of_decks):
         self.n = n
@@ -25,11 +53,13 @@ class Shoe:
 
         card = self.cards.pop(0)
         self.running_count += cards_count[card]
+        self.running_count_vec += cards_vec_count[card]
         self.countVec[card] += 1
         return card
 
     def rebuild(self):
         self.running_count = 0
+        self.running_count_vec = 0
         self.countVec = np.zeros(14)
         self.countVec[0] = 1 # Bias always = 1
         self.rem_decks = self.n
@@ -219,8 +249,11 @@ class Game:
 
         return self.rewardHandler(dealer_sum, player_sums), True
     
-    def get_count(self):
-        return float(self.shoe.running_count) / self.shoe.rem_decks
+    def get_count(self,vec = False):
+        if vec:
+            return float(self.shoe.running_count_vec) / self.shoe.rem_decks
+        else:
+            return float(self.shoe.running_count) / self.shoe.rem_decks
     
     def place_bet(self, bet):
         self.bet = bet

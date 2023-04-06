@@ -8,10 +8,10 @@ from pprint import pprint
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
-# matplotlib.use( 'tkagg' ) 
+matplotlib.use( 'tkagg' ) 
 
 def roundCount(count):
-    return round(count * 2) / 2
+    return round(count,1)
 
 def initCountDict(game):
     total_min_count_val = common.COUNT_MIN_VAL_DECK * game.shoe.n
@@ -19,8 +19,8 @@ def initCountDict(game):
     d = dict()
 
     for running_count in range(total_min_count_val, total_max_count_val+1):
-        for decks in range(1,game.shoe.n + 1):
-            d[float(running_count)/decks] = (0,0)
+        for i in range(0,10):
+            d[round(float(running_count) + 0.1 * i,1)] = (0,0)
     return d
 
 def normalize(d : dict):
@@ -54,7 +54,7 @@ def getOnlyHands(d : dict):
 def lps_dict(d: dict):
     lps_dict = dict()
     for key in d.keys():
-        if abs(key) < 20:
+        if abs(key) < 80:
             rounded = roundCount(key)
             if rounded not in lps_dict:
                 lps_dict[rounded] = d[key]
@@ -64,12 +64,13 @@ def lps_dict(d: dict):
                 lps_dict[rounded] = (lrewards + rrewards, lhands + rhands)
     return lps_dict
 class CountAgent:
-    def __init__(self):
+    def __init__(self,vec=False):
         self.game = sim.Game()
         self.Q_table = bs.initBasicStrategy()
         self.countDict = initCountDict(self.game)
         self.XVecs = []
         self.YVec = []
+        self.vec = vec
     
     def handleBJ(self):
         reward, done = 0, False
@@ -95,25 +96,29 @@ class CountAgent:
                            itertools.islice(self.Q_table[game_state][(player_state, dealer_state)].items(), 2)).get)
 
     # function that place the best bet, probably according to Kelly criterion
-    def getBet(self):
-        # count = roundCount(self.game.get_count())
-        # if count < -20:
-        #     count = -20
-        # elif count > 20:
-        #     count = 20
-        # p = 0.5 + common.winrateDict[count]
-        # q = 1 - p
-        # bet = max (self.game.minBet, int(self.game.money * (p - q)))
-        # return bet
+    def getBet(self,vec):
+        count = roundCount(self.game.get_count())
+        if count < -30:
+            count = -30
+        elif count > 30:
+            count = 30
+        if vec:
+            p = 0.5 + common.winrateDictVec[count]
+        else:
+            p = 0.5 + common.winrateDict[count]
+        q = 1 - p
+        
+        bet = max (self.game.minBet, int(self.game.money * (p - q)))
+        return bet
         return 1
 
     def runLoop(self):
+        count = self.game.get_count(vec=self.vec)
+        countVec = np.array(self.game.shoe.countVec)
         game_state, player_state = self.game.reset_hands()
-        self.game.place_bet(self.getBet())
+        self.game.place_bet(self.getBet(self.vec))
         # print(f"bet = {self.getBet()}")
         # input()
-        count = self.game.get_count()
-        countVec = self.game.shoe.countVec
         reward, done = self.handleBJ()
         for i, _ in enumerate(self.game.playerCards):
             while not done:
@@ -135,14 +140,14 @@ class CountAgent:
         else:
             wins = 1 if (reward > 0) else 0
 
-        (count_rewards, touched) = self.countDict[count]
-        self.countDict[count] = (count_rewards + rewards, touched + 1)
-        self.XVecs.append(np.array(countVec))
+        (count_rewards, touched) = self.countDict[round(count,1)]
+        self.countDict[round(count,1)] = (count_rewards + rewards, touched + 1)
+        self.XVecs.append(countVec)
         self.YVec.append(rewards)
 
         return rewards, wins
 
-def batchGames():
+def batchGames(vec=False):
     # hands = 0
 
     fig, ax = plt.subplots()
@@ -152,7 +157,7 @@ def batchGames():
     ax.set_yscale('log')
     data = []
     for i in range(5):
-        countAgent = CountAgent()
+        countAgent = CountAgent(vec=vec)
         data.append(dict())
         hands = 0
         data[i][hands] = countAgent.game.money
@@ -168,8 +173,8 @@ def batchGames():
     
 
 
-def finalTest():
-    countAgent = CountAgent()
+def finalTest(vec = False):
+    countAgent = CountAgent(vec)
     for _ in tqdm(range(1, common.n_test+1)):
         rewards, wins = countAgent.runLoop()
     lps = lps_dict(countAgent.countDict)
@@ -187,17 +192,24 @@ def finalTest():
     fig.add_subplot(212)
     plt.bar(*zip(*only.items()))
     plt.title("not normalized")
-    # plt.show()
+    plt.show()
 
     # print(countAgent.XVecs)
-    X = np.c_[countAgent.XVecs]
-    Y = countAgent.YVec
+    X = np.array(countAgent.XVecs)
+    Y = np.array(countAgent.YVec)
 
+    print(X.shape)
+    print(Y.shape)
     print(X)
     w = np.linalg.inv(X.T @ X) @ X.T @ Y
     
     print(w)
+    d = dict()
+    for i in range(14):
+        if i != 0:
+            d[i] = w[i] * 1000
 
+    pprint(d)
     # fig = plt.figure(figsize=(8,5))
     # fig.add_subplot(111)
     # plt.title("Histogram")
@@ -205,8 +217,8 @@ def finalTest():
     # plt.show()
 
 def main():
-    finalTest()
-    # batchGames()
+    # finalTest(vec=True)
+    batchGames(vec=True)
 
 if __name__ == '__main__':
     main()
