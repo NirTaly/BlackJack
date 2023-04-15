@@ -11,7 +11,7 @@ import numpy as np
 matplotlib.use( 'tkagg' ) 
 
 def roundCount(count, vec=False):
-    count  = round(count * 2)/2 if vec == False else count
+    count  = round(count * 2)/2 #if vec == False else count
     return round(count,1)
 
 def initCountDict(game):
@@ -33,7 +33,7 @@ def normalize(d : dict):
                 norm[key] = 0
             else:
                 norm[key] = rewards / hands
-            
+
     return norm
 
 def getOnlyRewards(d : dict):
@@ -75,7 +75,7 @@ class CountAgent:
         self.XVecs = []
         self.YVec = []
         self.vec = vec
-    
+
     def handleBJ(self):
         reward, done = 0, False
         player_state, _ = self.game.sum_hands(self.game.playerCards[0])
@@ -87,7 +87,7 @@ class CountAgent:
                 reward *= 1.5
             done = True
         return reward, done
-    
+
     def getAction(self, game_state, player_state, dealer_state):
         if self.game.first_move:
             player_state = learning.playerStateFromGameState(self.game, game_state, player_state)
@@ -116,12 +116,14 @@ class CountAgent:
         return bet
         return 1
 
-    def runLoop(self):
+    def runLoop(self,kellyBet=False):
         count = self.game.get_count(vec=self.vec)
-        countVec = np.array(self.game.shoe.countVec)
+        countVec = tuple(self.game.shoe.countVec)
         game_state, player_state = self.game.reset_hands()
-        self.game.place_bet(1)
-        #self.game.place_bet(self.getBet(self.vec))
+        if kellyBet:
+            self.game.place_bet(self.getBet(self.vec))
+        else:
+            self.game.place_bet(1)
         # print(f"bet = {self.getBet()}")
         # input()
         reward, done = self.handleBJ()
@@ -147,8 +149,7 @@ class CountAgent:
 
         (count_rewards, touched) = self.countDict[round(count,1)]
         self.countDict[round(count,1)] = (count_rewards + rewards, touched + 1)
-        self.XVecs.append(countVec)
-        self.YVec.append(rewards)
+        self.XVecs.append((countVec, rewards))
 
         return rewards, wins
 
@@ -168,20 +169,50 @@ def batchGames(vec=False):
         data[i][hands] = countAgent.game.money
         while countAgent.game.money > countAgent.game.minBet and hands < 30000:
             print("Money: " + str(countAgent.game.money) + f" , Hands = {hands}")#, end='\r') 
-            countAgent.runLoop()
+            countAgent.runLoop(kellyBet=True)
             hands +=1
             if hands % 1000 == 0:
                 data[i][hands] = countAgent.game.money
         ax.plot(*zip(*data[i].items()),label=f'{i}')
-    
+
     plt.show()
-    
 
+def linear_reg(countAgent):
+    sortedVecs = sorted(countAgent.XVecs)
 
-def finalTest(vec = False):
-    countAgent = CountAgent(vec)
-    for _ in tqdm(range(1, common.n_test+1)):
-        rewards, wins = countAgent.runLoop()
+    firstOcc = 0
+    sum = 0
+    XVecs = []
+    YVec = []
+    XVecs.append(sortedVecs[0][0])
+    for runner, vecTuple in enumerate(tqdm(sortedVecs)):
+        if vecTuple[0] == XVecs[-1]:
+            sum += vecTuple[1]
+        else:
+            YVec.append(sum/(runner-firstOcc))
+            firstOcc = runner
+            sum = vecTuple[1]
+            XVecs.append(vecTuple[0])
+
+    YVec.append(sum/(len(sortedVecs[1])-firstOcc))
+
+    X = np.array(XVecs)
+    Y = np.array(YVec)
+
+    print(X.shape)
+    print(Y.shape)
+    #print(X)
+    w = np.linalg.inv(X.T @ X) @ X.T @ Y
+
+    #print(w)
+    d = dict()
+    for i in range(14):
+        if i != 0:
+            d[i] = w[i] * 1000
+
+    pprint(d)
+
+def count_graphs(countAgent, vec):
     lps = createLpsDict(countAgent.countDict, vec)
     only = getOnlyRewards(lps)
     normalized_dict = normalize(lps)
@@ -199,31 +230,23 @@ def finalTest(vec = False):
     plt.title("not normalized")
     plt.show()
 
-    # print(countAgent.XVecs)
-    X = np.array(countAgent.XVecs)
-    Y = np.array(countAgent.YVec)
-
-    print(X.shape)
-    print(Y.shape)
-    print(X)
-    w = np.linalg.inv(X.T @ X) @ X.T @ Y
-    
-    print(w)
-    d = dict()
-    for i in range(14):
-        if i != 0:
-            d[i] = w[i] * 1000
-
-    pprint(d)
     # fig = plt.figure(figsize=(8,5))
     # fig.add_subplot(111)
     # plt.title("Histogram")
     # plt.bar(*zip(*getOnlyHands(lps).items()))
     # plt.show()
 
+def finalTest(vec = False):
+    countAgent = CountAgent(vec)
+    for _ in tqdm(range(1, common.n_test+1)):
+        rewards, wins = countAgent.runLoop()
+
+    #count_graphs(countAgent, vec)
+    linear_reg(countAgent)
+
 def main():
     finalTest(vec=True)
-    # batchGames(vec=True)
+    #batchGames(vec=True)
 
 if __name__ == '__main__':
     main()
