@@ -1,4 +1,5 @@
 from tqdm import tqdm
+from tqdm.contrib.itertools import product
 import learning
 import simulator as sim
 import basic_strategy as bs
@@ -8,11 +9,13 @@ from pprint import pprint
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
+# import torch
+# import cupy as cp
 matplotlib.use( 'tkagg' ) 
 
 def roundCount(count, vec=False):
     count  = round(count * 2)/2 #if vec == False else count
-    return round(count,1)
+    return count
 
 def initCountDict(game):
     total_min_count_val = common.COUNT_MIN_VAL_DECK * game.shoe.n
@@ -28,11 +31,11 @@ def normalize(d : dict):
     norm = dict()
     for key in d.keys():
         (rewards, hands) = d[key]
-        if(hands != 0):
-            if hands < 1000:
-                norm[key] = 0
-            else:
-                norm[key] = rewards / hands
+        # if(hands != 0):
+        if hands < 1000:
+            norm[key] = 0
+        else:
+            norm[key] = rewards / hands
 
     return norm
 
@@ -101,30 +104,30 @@ class CountAgent:
 
     # function that place the best bet, probably according to Kelly criterion
     def getBet(self,vec):
-        count = roundCount(self.game.get_count(), vec)
-        if count < -1 * getLPSLimit():
-            count = -1 * getLPSLimit()
-        elif count > getLPSLimit():
-            count = getLPSLimit()
+        count = roundCount(self.game.get_count(vec), vec)
+        if count < -1 * getLPSLimit(vec):
+            count = -1 * getLPSLimit(vec)
+        elif count > getLPSLimit(vec):
+            count = getLPSLimit(vec)
         if vec:
             p = 0.5 + common.winrateDictVec[count]
         else:
             p = 0.5 + common.winrateDict[count]
         q = 1 - p
-        
         bet = max (self.game.minBet, int(self.game.money * (p - q)))
         return bet
         return 1
 
     def runLoop(self,kellyBet=False):
         count = self.game.get_count(vec=self.vec)
-        countVec = tuple(self.game.shoe.countVec)
+        countVec = tuple(self.game.shoe.getNormVec())
         game_state, player_state = self.game.reset_hands()
         if kellyBet:
             self.game.place_bet(self.getBet(self.vec))
         else:
             self.game.place_bet(1)
-        # print(f"bet = {self.getBet()}")
+        # print(f"count = {count}")
+        # print(f"bet = {self.getBet(self.vec)}")
         # input()
         reward, done = self.handleBJ()
         for i, _ in enumerate(self.game.playerCards):
@@ -149,7 +152,8 @@ class CountAgent:
 
         (count_rewards, touched) = self.countDict[round(count,1)]
         self.countDict[round(count,1)] = (count_rewards + rewards, touched + 1)
-        self.XVecs.append((countVec, rewards))
+        self.XVecs.append(countVec)
+        self.YVec.append(rewards)
 
         return rewards, wins
 
@@ -175,47 +179,58 @@ def batchGames(vec=False):
                 data[i][hands] = countAgent.game.money
         ax.plot(*zip(*data[i].items()),label=f'{i}')
 
-    plt.show()
+    plt.savefig("res/MoneyGraph")
 
 def linear_reg(countAgent):
-    sortedVecs = sorted(countAgent.XVecs)
+    # sortedVecs = sorted(countAgent.XVecs)
 
-    firstOcc = 0
-    sum = 0
-    XVecs = []
-    YVec = []
-    XVecs.append(sortedVecs[0][0])
-    for runner, vecTuple in enumerate(tqdm(sortedVecs)):
-        if vecTuple[0] == XVecs[-1]:
-            sum += vecTuple[1]
-        else:
-            YVec.append(sum/(runner-firstOcc))
-            firstOcc = runner
-            sum = vecTuple[1]
-            XVecs.append(vecTuple[0])
+    # firstOcc = 0
+    # sum = 0
+    # XVecs = []
+    # YVec = []
+    # XVecs.append(sortedVecs[0][0])
+    # for runner, vecTuple in enumerate(tqdm(sortedVecs)):
+    #     if vecTuple[0] == XVecs[-1]:
+    #         sum += vecTuple[1]
+    #     else:
+    #         YVec.append(sum/(runner-firstOcc))
+    #         firstOcc = runner
+    #         sum = vecTuple[1]
+    #         XVecs.append(vecTuple[0])
 
-    YVec.append(sum/(len(sortedVecs[1])-firstOcc))
+    # # Handle last item.
+    # YVec.append(sum/(len(sortedVecs[1])-firstOcc))
 
-    X = np.array(XVecs)
-    Y = np.array(YVec)
+    # device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    
+    X = np.array(countAgent.XVecs)
+    Y = np.array(countAgent.YVec)
 
     print(X.shape)
     print(Y.shape)
-    #print(X)
+    print(X)
     w = np.linalg.inv(X.T @ X) @ X.T @ Y
 
     #print(w)
+    print(f'Bias = {w[0]}')
     d = dict()
     for i in range(14):
         if i != 0:
             d[i] = w[i] * 1000
 
     pprint(d)
+    sim.cards_vec_count = d
+    with open("res/vector.txt", "w") as f:
+        # Writing data to a file
+        pprint(d,f)
 
 def count_graphs(countAgent, vec):
     lps = createLpsDict(countAgent.countDict, vec)
     only = getOnlyRewards(lps)
     normalized_dict = normalize(lps)
+
+    common.winrateDictVec = normalized_dict
 
     pprint(only)
     pprint(normalized_dict)
@@ -228,7 +243,9 @@ def count_graphs(countAgent, vec):
     fig.add_subplot(212)
     plt.bar(*zip(*only.items()))
     plt.title("not normalized")
-    plt.show()
+    # plt.show()
+    plt.savefig("res/CountNormalized")
+    
 
     # fig = plt.figure(figsize=(8,5))
     # fig.add_subplot(111)
@@ -241,12 +258,21 @@ def finalTest(vec = False):
     for _ in tqdm(range(1, common.n_test+1)):
         rewards, wins = countAgent.runLoop()
 
-    #count_graphs(countAgent, vec)
+    count_graphs(countAgent, vec)
+
+def run_create_vec():
+    countAgent = CountAgent(vec=True)
+    for _ in tqdm(range(1, common.n_test+1)):
+        rewards, wins = countAgent.runLoop()
     linear_reg(countAgent)
 
 def main():
+    run_create_vec()
     finalTest(vec=True)
-    #batchGames(vec=True)
+    batchGames(vec=True)
+    # l =  []
+    # perm = (list(product(range(24),range(24),range(24),range(24),range(24),range(24),range(24),range(24),range(24),range(24))))
+    # print(perm[:100])
 
 if __name__ == '__main__':
     main()
