@@ -29,13 +29,20 @@ def initCountDict(game):
 
 def normalize(d : dict):
     norm = dict()
+    max, min = 0, 0
     for key in d.keys():
         (rewards, hands) = d[key]
         # if(hands != 0):
-        if hands < 1000:
-            norm[key] = 0
-        else:
+        if hands > common.lps_threshold:
+            if key > max:
+                max = key
+            elif key < min:
+                min = key
             norm[key] = rewards / hands
+
+    common.lps_limit_max_vec = max
+    common.lps_limit_min_vec = min
+    print(f'max = {max} , min = {min}')
 
     return norm
 
@@ -58,6 +65,19 @@ def getOnlyHands(d : dict):
 def getLPSLimit(vec=False):
     return common.lps_limit_vec if vec else common.lps_limit
 
+def getWinrateMaxMin(max, vec):
+    if not vec:
+        if max:
+            return common.lps_limit
+        else:
+            return -1 * common.lps_limit
+    else:
+        if max:
+            return common.lps_limit_max_vec
+        else:
+            return common.lps_limit_min_vec
+
+
 def createLpsDict(d: dict, vec=False):
     lps_dict = dict()
     for key in d.keys():
@@ -71,13 +91,14 @@ def createLpsDict(d: dict, vec=False):
                 lps_dict[rounded] = (lrewards + rrewards, lhands + rhands)
     return lps_dict
 class CountAgent:
-    def __init__(self,vec=False):
+    def __init__(self,appendX, vec=False):
         self.game = sim.Game()
         self.Q_table = bs.initBasicStrategy()
         self.countDict = initCountDict(self.game)
-        self.XVecs = []
-        self.YVec = []
+        self.XVecs = np.zeros((common.n_test,14))
+        self.YVec = np.zeros(common.n_test)
         self.vec = vec
+        self.appendX = appendX
 
     def handleBJ(self):
         reward, done = 0, False
@@ -105,10 +126,10 @@ class CountAgent:
     # function that place the best bet, probably according to Kelly criterion
     def getBet(self,vec):
         count = roundCount(self.game.get_count(vec), vec)
-        if count < -1 * getLPSLimit(vec):
-            count = -1 * getLPSLimit(vec)
-        elif count > getLPSLimit(vec):
-            count = getLPSLimit(vec)
+        if count < getWinrateMaxMin(False,vec):
+            count = getWinrateMaxMin(False,vec)
+        elif count > getWinrateMaxMin(True,vec):
+            count = getWinrateMaxMin(True,vec)
         if vec:
             p = 0.5 + common.winrateDictVec[count]
         else:
@@ -118,7 +139,7 @@ class CountAgent:
         return bet
         return 1
 
-    def runLoop(self,kellyBet=False):
+    def runLoop(self,testIdx,kellyBet=False):
         count = self.game.get_count(vec=self.vec)
         countVec = tuple(self.game.shoe.getNormVec())
         game_state, player_state = self.game.reset_hands()
@@ -152,14 +173,15 @@ class CountAgent:
 
         (count_rewards, touched) = self.countDict[round(count,1)]
         self.countDict[round(count,1)] = (count_rewards + rewards, touched + 1)
-        self.XVecs.append(countVec)
-        self.YVec.append(rewards)
+        if self.appendX:
+            self.XVecs[testIdx,:] = countVec
+            self.YVec[testIdx] = rewards
 
         return rewards, wins
 
 def batchGames(vec=False):
     # hands = 0
-
+    print("Starting batchGames")
     fig, ax = plt.subplots()
     plt.xlabel('Hands')
     plt.ylabel('Money')
@@ -167,21 +189,23 @@ def batchGames(vec=False):
     ax.set_yscale('log')
     data = []
     for i in range(5):
-        countAgent = CountAgent(vec=vec)
+        countAgent = CountAgent(False, vec=vec)
         data.append(dict())
         hands = 0
         data[i][hands] = countAgent.game.money
         while countAgent.game.money > countAgent.game.minBet and hands < 30000:
-            print("Money: " + str(countAgent.game.money) + f" , Hands = {hands}")#, end='\r') 
-            countAgent.runLoop(kellyBet=True)
+            #print("Money: " + str(countAgent.game.money) + f" , Hands = {hands}")#, end='\r') 
+            countAgent.runLoop(0,kellyBet=True) # i=0 is redundent, just to pass something
             hands +=1
             if hands % 1000 == 0:
                 data[i][hands] = countAgent.game.money
+                print("Money: " + str(countAgent.game.money) + f" , Hands = {hands}")
         ax.plot(*zip(*data[i].items()),label=f'{i}')
 
     plt.savefig("res/MoneyGraph")
 
 def linear_reg(countAgent):
+    print("Starting linaer_reg")
     # sortedVecs = sorted(countAgent.XVecs)
 
     # firstOcc = 0
@@ -254,25 +278,23 @@ def count_graphs(countAgent, vec):
     # plt.show()
 
 def finalTest(vec = False):
-    countAgent = CountAgent(vec)
-    for _ in tqdm(range(1, common.n_test+1)):
-        rewards, wins = countAgent.runLoop()
+    print("Starting finalTest")
+    countAgent = CountAgent(False,vec)
+    for i in tqdm(range(common.n_test)):
+        rewards, wins = countAgent.runLoop(i)
 
     count_graphs(countAgent, vec)
 
 def run_create_vec():
-    countAgent = CountAgent(vec=True)
-    for _ in tqdm(range(1, common.n_test+1)):
-        rewards, wins = countAgent.runLoop()
+    countAgent = CountAgent(True, vec=True)
+    for i in tqdm(range(common.n_test)):
+        rewards, wins = countAgent.runLoop(i)
     linear_reg(countAgent)
 
 def main():
     run_create_vec()
     finalTest(vec=True)
     batchGames(vec=True)
-    # l =  []
-    # perm = (list(product(range(24),range(24),range(24),range(24),range(24),range(24),range(24),range(24),range(24),range(24))))
-    # print(perm[:100])
 
 if __name__ == '__main__':
     main()
