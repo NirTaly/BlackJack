@@ -9,6 +9,8 @@ from pprint import pprint
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
+from scipy.stats import gmean
+import json
 # import torch
 # import cupy as cp
 matplotlib.use( 'tkagg' ) 
@@ -73,12 +75,13 @@ def getWinrateMaxMin(max, vec):
             return -1 * common.lps_limit
     else:
         if max:
-            return common.lps_limit_max_vec
+            return common.lps_limit_max_vec - 1 #-1 for safety
         else:
-            return common.lps_limit_min_vec
+            return common.lps_limit_min_vec + 1 #same
 
 
-def createLpsDict(d: dict, vec=False):
+def createLpsDict(vec=False):
+    d = loadFromDB('countDict')    
     lps_dict = dict()
     for key in d.keys():
         if abs(key) < getLPSLimit(vec):
@@ -91,14 +94,15 @@ def createLpsDict(d: dict, vec=False):
                 lps_dict[rounded] = (lrewards + rrewards, lhands + rhands)
     return lps_dict
 class CountAgent:
-    def __init__(self,appendX, vec=False):
+    def __init__(self,needMatrixes, vec=False):
         self.game = sim.Game()
         self.Q_table = bs.initBasicStrategy()
         self.countDict = initCountDict(self.game)
-        self.XVecs = np.zeros((common.n_test,14))
-        self.YVec = np.zeros(common.n_test)
+        if needMatrixes:
+            self.XVecs = np.zeros((common.n_test,14))
+            self.YVec = np.zeros(common.n_test)
         self.vec = vec
-        self.appendX = appendX
+        self.needMatrixes = needMatrixes
 
     def handleBJ(self):
         reward, done = 0, False
@@ -173,7 +177,7 @@ class CountAgent:
 
         (count_rewards, touched) = self.countDict[round(count,1)]
         self.countDict[round(count,1)] = (count_rewards + rewards, touched + 1)
-        if self.appendX:
+        if self.needMatrixes:
             self.XVecs[testIdx,:] = countVec
             self.YVec[testIdx] = rewards
 
@@ -187,25 +191,34 @@ def batchGames(vec=False):
     plt.ylabel('Money')
     plt.title("Money - Hands")
     ax.set_yscale('log')
-    data = []
-    for i in range(5):
-        countAgent = CountAgent(False, vec=vec)
-        data.append(dict())
+    data = np.zeros((common.graphs_num_of_runs, common.graphs_max_hands))
+    x_indices = np.arange(0,common.graphs_max_hands, common.graphs_sample_rate)
+
+    for i in tqdm(range(common.graphs_num_of_runs)):
+        countAgent = CountAgent(needMatrixes=False, vec=vec)
         hands = 0
         data[i][hands] = countAgent.game.money
-        while countAgent.game.money > countAgent.game.minBet and hands < 30000:
+        while countAgent.game.money > countAgent.game.minBet and hands < common.graphs_max_hands:
             #print("Money: " + str(countAgent.game.money) + f" , Hands = {hands}")#, end='\r') 
             countAgent.runLoop(0,kellyBet=True) # i=0 is redundent, just to pass something
-            hands +=1
-            if hands % 1000 == 0:
+            if hands % common.graphs_sample_rate == 0:
                 data[i][hands] = countAgent.game.money
-                print("Money: " + str(countAgent.game.money) + f" , Hands = {hands}")
-        ax.plot(*zip(*data[i].items()),label=f'{i}')
+                #print("Money: " + str(countAgent.game.money) + f" , Hands = {hands}")
+            hands +=1
+#        plt.plot(x_indices, data[i][x_indices], label=f'{i+1}')
 
+    avg = np.mean(data, axis=0)
+    percentile = np.percentile(data, 50, axis=0)
+    geo_mean = gmean(data, axis=0)
+    plt.plot(x_indices, avg[x_indices],label=f'Avg')
+    plt.plot(x_indices, percentile[x_indices],label=f'Median')
+    plt.plot(x_indices, geo_mean[x_indices],label=f'Geo Avg')
+
+    plt.legend()
     plt.savefig("res/MoneyGraph")
 
 def linear_reg(countAgent):
-    print("Starting linaer_reg")
+    print("\nStarting linaer_reg")
     # sortedVecs = sorted(countAgent.XVecs)
 
     # firstOcc = 0
@@ -228,12 +241,13 @@ def linear_reg(countAgent):
     # device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     
-    X = np.array(countAgent.XVecs)
-    Y = np.array(countAgent.YVec)
+    X = countAgent.XVecs
+    Y = countAgent.YVec
 
     print(X.shape)
     print(Y.shape)
     print(X)
+    print("Calculating w..\n")
     w = np.linalg.inv(X.T @ X) @ X.T @ Y
 
     #print(w)
@@ -245,19 +259,23 @@ def linear_reg(countAgent):
 
     pprint(d)
     sim.cards_vec_count = d
-    with open("res/vector.txt", "w") as f:
+    with open("data/w_vector.txt", "w") as f:
         # Writing data to a file
         pprint(d,f)
 
-def count_graphs(countAgent, vec):
-    lps = createLpsDict(countAgent.countDict, vec)
+def count_graphs(vec):
+    lps = createLpsDict(vec)
     only = getOnlyRewards(lps)
     normalized_dict = normalize(lps)
 
     common.winrateDictVec = normalized_dict
-
-    pprint(only)
-    pprint(normalized_dict)
+    saveToDB('winrateDictVec', normalized_dict)
+    with open("data/only_rewards.txt", "w") as f:
+        pprint(only,f)
+    # pprint(only)
+    with open("data/normalized_dict.txt", "w") as f:
+        pprint(normalized_dict,f)
+    #pprint(normalized_dict)
     # pprint(getOnlyHands(lps))
 
     fig = plt.figure(figsize=(8,5))
@@ -267,8 +285,10 @@ def count_graphs(countAgent, vec):
     fig.add_subplot(212)
     plt.bar(*zip(*only.items()))
     plt.title("not normalized")
-    # plt.show()
+    
+    fig = plt.gcf()
     plt.savefig("res/CountNormalized")
+    #plt.show()
     
 
     # fig = plt.figure(figsize=(8,5))
@@ -278,20 +298,40 @@ def count_graphs(countAgent, vec):
     # plt.show()
 
 def finalTest(vec = False):
-    print("Starting finalTest")
-    countAgent = CountAgent(False,vec)
-    for i in tqdm(range(common.n_test)):
-        rewards, wins = countAgent.runLoop(i)
+    print("\nStarting finalTest")
+#    countAgent = CountAgent(needMatrixes=False,vec)
+#    for i in tqdm(range(common.n_test)):
+#        rewards, wins = countAgent.runLoop(i)
+    
+    count_graphs(vec)
 
-    count_graphs(countAgent, vec)
-
+def saveToDB(key, d):
+    with open('data/dicts.json', "r+") as f:
+        data = json.load(f)
+        if data is None:
+            data = dict()
+        data[key] = d
+        f.seek(0)
+        json.dump(data,f, indent=2)
+def loadFromDB(key):
+    with open('data/dicts.json', 'rb') as f:
+        data = json.load(f)
+        d = {float(k): v for k,v in data[key].items()}
+        return d
+def initializeDB():
+    with open('data/dicts.json', 'w') as f:
+        json.dump({}, f)
+        
 def run_create_vec():
-    countAgent = CountAgent(True, vec=True)
+    print("\nStarting run_create_vec")
+    countAgent = CountAgent(needMatrixes=True, vec=True)
     for i in tqdm(range(common.n_test)):
         rewards, wins = countAgent.runLoop(i)
     linear_reg(countAgent)
+    saveToDB('countDict', countAgent.countDict)
 
 def main():
+    initializeDB()
     run_create_vec()
     finalTest(vec=True)
     batchGames(vec=True)
