@@ -13,8 +13,9 @@ from scipy.stats import gmean
 import json
 # import torch
 # import cupy as cp
-matplotlib.use( 'tkagg' ) 
+# matplotlib.use( 'tkagg' ) # we do savefig now, not needed
 
+alreadyRunLoop = False
 def roundCount(count, vec=False):
     count  = round(count * 2)/2 #if vec == False else count
     return count
@@ -29,7 +30,7 @@ def initCountDict(game):
             d[round(float(running_count) + 0.1 * i,1)] = (0,0)
     return d
 
-def normalize(d : dict):
+def normalize(d : dict, vec):
     norm = dict()
     max, min = 0, 0
     for key in d.keys():
@@ -40,10 +41,15 @@ def normalize(d : dict):
                 max = key
             elif key < min:
                 min = key
-            norm[key] = rewards / hands
-
-    common.lps_limit_max_vec = max
-    common.lps_limit_min_vec = min
+            norm[key] = (rewards / hands) # / 2
+        else:
+            norm[key] = 0
+    if vec:
+        common.lps_limit_max_vec = max
+        common.lps_limit_min_vec = min
+    else:
+        common.lps_limit_max = max
+        common.lps_limit_min = min
     print(f'max = {max} , min = {min}')
 
     return norm
@@ -70,9 +76,9 @@ def getLPSLimit(vec=False):
 def getWinrateMaxMin(max, vec):
     if not vec:
         if max:
-            return common.lps_limit
+            return common.lps_limit_max
         else:
-            return -1 * common.lps_limit
+            return common.lps_limit_min
     else:
         if max:
             return common.lps_limit_max_vec - 1 #-1 for safety
@@ -130,10 +136,10 @@ class CountAgent:
     # function that place the best bet, probably according to Kelly criterion
     def getBet(self,vec):
         count = roundCount(self.game.get_count(vec), vec)
-        if count < getWinrateMaxMin(False,vec):
-            count = getWinrateMaxMin(False,vec)
-        elif count > getWinrateMaxMin(True,vec):
-            count = getWinrateMaxMin(True,vec)
+        if count < getWinrateMaxMin(max=False,vec=vec):
+            count = getWinrateMaxMin(max=False,vec=vec)
+        elif count > getWinrateMaxMin(max=True,vec=vec):
+            count = getWinrateMaxMin(max=True,vec=vec)
         if vec:
             p = 0.5 + common.winrateDictVec[count]
         else:
@@ -141,7 +147,6 @@ class CountAgent:
         q = 1 - p
         bet = max (self.game.minBet, int(self.game.money * (p - q)))
         return bet
-        return 1
 
     def runLoop(self,testIdx,kellyBet=False):
         count = self.game.get_count(vec=self.vec)
@@ -151,6 +156,7 @@ class CountAgent:
             self.game.place_bet(self.getBet(self.vec))
         else:
             self.game.place_bet(1)
+        # print(f"hand = {testIdx}")
         # print(f"count = {count}")
         # print(f"bet = {self.getBet(self.vec)}")
         # input()
@@ -183,39 +189,76 @@ class CountAgent:
 
         return rewards, wins
 
-def batchGames(vec=False):
+def batchGames(vec=False, loadWinRateFromDB=False):
     # hands = 0
     print("Starting batchGames")
-    fig, ax = plt.subplots()
-    plt.xlabel('Hands')
-    plt.ylabel('Money')
-    plt.title("Money - Hands")
-    ax.set_yscale('log')
     data = np.zeros((common.graphs_num_of_runs, common.graphs_max_hands))
     x_indices = np.arange(0,common.graphs_max_hands, common.graphs_sample_rate)
 
+    if loadWinRateFromDB:
+        if vec:
+            common.winrateDictVec = loadFromDB('winrateDictVec')
+        else:
+            common.winrateDict = loadFromDB('winrateDict')
+
+    setMaxMin(common.winrateDict, vec)
+
     for i in tqdm(range(common.graphs_num_of_runs)):
-        countAgent = CountAgent(needMatrixes=False, vec=vec)
-        hands = 0
-        data[i][hands] = countAgent.game.money
-        while countAgent.game.money > countAgent.game.minBet and hands < common.graphs_max_hands:
-            #print("Money: " + str(countAgent.game.money) + f" , Hands = {hands}")#, end='\r') 
-            countAgent.runLoop(0,kellyBet=True) # i=0 is redundent, just to pass something
-            if hands % common.graphs_sample_rate == 0:
-                data[i][hands] = countAgent.game.money
-                #print("Money: " + str(countAgent.game.money) + f" , Hands = {hands}")
-            hands +=1
-#        plt.plot(x_indices, data[i][x_indices], label=f'{i+1}')
+        not_failed = True
+        while(not_failed):
+            countAgent = CountAgent(needMatrixes=False, vec=vec)
+            hands = 0
+            data[i][hands] = countAgent.game.money
+            while countAgent.game.money >= countAgent.game.minBet and hands < common.graphs_max_hands:
+                #print("Money: " + str(countAgent.game.money) + f" , Hands = {hands}")#, end='\r') 
+                countAgent.runLoop(hands,kellyBet=True) # i=0 is redundent, just to pass something
+                if hands % common.graphs_sample_rate == 0:
+                    data[i][hands] = countAgent.game.money
+                    #print("Money: " + str(countAgent.game.money) + f" , Hands = {hands}")
+                hands +=1
+
+                if countAgent.game.money < countAgent.game.minBet:
+                    print(f"This Sucks! I LOST ALL MY MONEY!! RUNNING AGAIN the {i}th run")
+                else:
+                    not_failed = False
+
+    data = data[:,x_indices]
 
     avg = np.mean(data, axis=0)
     percentile = np.percentile(data, 50, axis=0)
     geo_mean = gmean(data, axis=0)
-    plt.plot(x_indices, avg[x_indices],label=f'Avg')
-    plt.plot(x_indices, percentile[x_indices],label=f'Median')
-    plt.plot(x_indices, geo_mean[x_indices],label=f'Geo Avg')
+
+    fig, ax = plt.subplots()
+    plt.xlabel('Hands')
+    plt.ylabel('Money')
+    game_setting = 'Vec' if vec else 'HiLo'
+    plt.title(f"Money - Hands\nRunning {common.graphs_num_of_runs} hands\n{game_setting}")
+    ax.set_yscale('log')
+    plt.plot(x_indices, avg,label=f'Avg')
+    plt.plot(x_indices, percentile,label=f'Median')
+    plt.plot(x_indices, geo_mean,label=f'Geo Avg')
 
     plt.legend()
-    plt.savefig("res/MoneyGraph")
+    plt.savefig("res/MoneyGraph",dpi=500)
+
+def setMaxMin(d : dict, vec):
+    max, min = 0, 0
+    for key in d.keys():
+        expectedWinrate = d[key]
+        # if(hands != 0):
+        if expectedWinrate != 0:
+            if key > max:
+                max = key
+            elif key < min:
+                min = key
+    if vec:
+        common.lps_limit_max_vec = max
+        common.lps_limit_min_vec = min
+    else:
+        common.lps_limit_max = max
+        common.lps_limit_min = min
+
+    print(f'max = {max} , min = {min}')
 
 def linear_reg(countAgent):
     print("\nStarting linaer_reg")
@@ -240,7 +283,7 @@ def linear_reg(countAgent):
 
     # device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    
+
     X = countAgent.XVecs
     Y = countAgent.YVec
 
@@ -266,16 +309,24 @@ def linear_reg(countAgent):
 def count_graphs(vec):
     lps = createLpsDict(vec)
     only = getOnlyRewards(lps)
-    normalized_dict = normalize(lps)
+    normalized_dict = normalize(lps, vec)
 
-    common.winrateDictVec = normalized_dict
-    saveToDB('winrateDictVec', normalized_dict)
-    with open("data/only_rewards.txt", "w") as f:
-        pprint(only,f)
+    if vec:
+        common.winrateDictVec = normalized_dict
+        saveToDB('winrateDictVec', normalized_dict)
+        with open("data/only_rewards_vec.txt", "w") as f:
+            pprint(only, f)
+        with open("data/normalized_dict_vec.txt", "w") as f:
+            pprint(normalized_dict, f)
+    else:
+        common.winrateDict = normalized_dict
+        saveToDB('winrateDict', normalized_dict)
+        with open("data/only_rewards_hilo.txt", "w") as f:
+            pprint(only, f)
+        with open("data/normalized_dict_hilo.txt", "w") as f:
+            pprint(normalized_dict, f)
     # pprint(only)
-    with open("data/normalized_dict.txt", "w") as f:
-        pprint(normalized_dict,f)
-    #pprint(normalized_dict)
+    # pprint(normalized_dict)
     # pprint(getOnlyHands(lps))
 
     fig = plt.figure(figsize=(8,5))
@@ -285,11 +336,11 @@ def count_graphs(vec):
     fig.add_subplot(212)
     plt.bar(*zip(*only.items()))
     plt.title("not normalized")
-    
+
     fig = plt.gcf()
-    plt.savefig("res/CountNormalized")
+    plt.savefig("res/CountNormalized",dpi=500)
     #plt.show()
-    
+
 
     # fig = plt.figure(figsize=(8,5))
     # fig.add_subplot(111)
@@ -299,10 +350,12 @@ def count_graphs(vec):
 
 def finalTest(vec = False):
     print("\nStarting finalTest")
-#    countAgent = CountAgent(needMatrixes=False,vec)
-#    for i in tqdm(range(common.n_test)):
-#        rewards, wins = countAgent.runLoop(i)
-    
+    countAgent = CountAgent(needMatrixes=False,vec=vec)
+    for i in tqdm(range(common.n_test)):
+        countAgent.runLoop(i)
+
+    saveToDB('countDict', countAgent.countDict)
+
     count_graphs(vec)
 
 def saveToDB(key, d):
@@ -321,20 +374,23 @@ def loadFromDB(key):
 def initializeDB():
     with open('data/dicts.json', 'w') as f:
         json.dump({}, f)
-        
+
 def run_create_vec():
     print("\nStarting run_create_vec")
     countAgent = CountAgent(needMatrixes=True, vec=True)
     for i in tqdm(range(common.n_test)):
-        rewards, wins = countAgent.runLoop(i)
+        countAgent.runLoop(i)
+
     linear_reg(countAgent)
-    saveToDB('countDict', countAgent.countDict)
+    # saveToDB('countDict', countAgent.countDict) shouldnt be here, moved to final test, using the right w vector.
 
 def main():
-    initializeDB()
-    run_create_vec()
-    finalTest(vec=True)
-    batchGames(vec=True)
+    # initializeDB()
+    # run_create_vec()
+    # finalTest(vec=False)
+    # batchGames(vec=True,loadWinRateFromDB=True) # Vectorized
+    batchGames(vec=False,loadWinRateFromDB=True) # HiLo
+
 
 if __name__ == '__main__':
     main()

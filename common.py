@@ -9,17 +9,19 @@ MILLION = 1000000
 
 n_learning = 30 * MILLION
 n_train = 10 * MILLION
-n_test = int(1000 * MILLION)
+n_test = int(100 * MILLION)
 
 lps_limit_vec = 200
 lps_limit_max_vec = 123.5
 lps_limit_min_vec = -126
-lps_limit = 20
+lps_limit = 40
+lps_limit_max = 20
+lps_limit_min = 20
 lps_threshold = 1000
 
-graphs_max_hands = 30000
+graphs_max_hands = 30001
 graphs_sample_rate = 1000
-graphs_num_of_runs = 1000
+graphs_num_of_runs = 100
 
 # Rules
 dealerStandSoft17 = True
