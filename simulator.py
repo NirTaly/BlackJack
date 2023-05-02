@@ -10,34 +10,45 @@ cards_values = {1: 11, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8, 9: 9, 10: 10, 1
 cards_count = {1: -1, 2: 1, 3: 1, 4: 1, 5: 1, 6: 1, 7: 0, 8: 0, 9: 0, 10: -1, 11: -1, 12: -1, 13: -1}
 
 
-cards_vec_count = {1: -11.042615985359793,
- 2: 6.125676361677346,
- 3: 8.360637600022915,
- 4: 9.582956807877073,
- 5: 12.74690239179271,
- 6: 6.662251733078631,
- 7: 4.268685514389877,
- 8: -0.679753439637321,
- 9: -3.3050215937721337,
- 10: -8.372830792509397,
- 11: -8.105644040887418,
- 12: -8.085158056021344,
- 13: -8.141166708328461}
+#Bias = 0.006928951467022775
+cards_vec_count = {1: -10.559050335551536,
+ 2: 6.626549835944278,
+ 3: 7.643277584657614,
+ 4: 9.394683388516347,
+ 5: 12.613992633565802,
+ 6: 7.642751642233357,
+ 7: 3.725994331219095,
+ 8: -1.0408825072432364,
+ 9: -3.4816847223829885,
+ 10: -8.141558921741513}
 
+#Sum of vector = 0.00040542901362774705
 
-# cards_vec_count = {1: -3.405512576167473,
-#  2: 2.024110858667368,
-#  3: 2.7366591327242342,
-#  4: 3.0668612970550293,
-#  5: 3.6798419561872158,
-#  6: 2.0601721008782796,
-#  7: 0.9064841219163626,
-#  8: 0.011724008086303002,
-#  9: -1.1091809639586039,
-#  10: -2.4927654024682546,
-#  11: -2.3318798552339963,
-#  12: -2.6477078757637806,
-#  13: -2.570703199428112}
+#cards_vec_count = {1: -12.641185102947892,
+# 2: 10.029463632237185,
+# 3: 5.812862245054516,
+# 4: 7.041287327375578,
+# 5: 15.278964481036708,
+# 6: 6.148741500515471,
+# 7: 2.84588579861269,
+# 8: 1.6633612469682408,
+# 9: -7.0623839111709295,
+# 10: -7.840853569530667}
+
+# cards_vec_count = {1: -11.042615985359793,
+#  2: 6.125676361677346,
+#  3: 8.360637600022915,
+#  4: 9.582956807877073,
+#  5: 12.74690239179271,
+#  6: 6.662251733078631,
+#  7: 4.268685514389877,
+#  8: -0.679753439637321,
+#  9: -3.3050215937721337,
+#  10: -8.372830792509397,
+#  11: -8.105644040887418,
+#  12: -8.085158056021344,
+#  13: -8.141166708328461}
+
 
 class Shoe:
     def __init__(self, n=common.num_of_decks):
@@ -55,14 +66,23 @@ class Shoe:
 
         card = self.cards.pop(0)
         self.running_count += cards_count[card]
-        self.running_count_vec += cards_vec_count[card]
-        self.countVec[card] += 1
+        
+        if card >= 10:
+            self.countVec[10] += 1
+            self.running_count_vec += cards_vec_count[10]
+        else:
+            self.countVec[card] += 1
+            self.running_count_vec += cards_vec_count[card]
+
+        # self.running_count_vec += cards_vec_count[card]
+        # self.countVec[card] += 1
         return card
 
     def rebuild(self):
         self.running_count = 0
         self.running_count_vec = 0
-        self.countVec = np.zeros(14,dtype=np.uint8)
+        self.countVec = np.zeros(11,dtype=np.uint8)
+        # self.countVec = np.zeros(14,dtype=np.uint8)
         self.countVec[0] = 1 # Bias always = 1
         self.rem_decks = self.n
         self.cards = [*range(1, 14)] * 4 * self.n
@@ -71,7 +91,10 @@ class Shoe:
     def getNormVec(self):
         divided = self.countVec / self.rem_decks
         divided[0] = 1
+        divided[10] = divided[10] / 4
+        # return divided.round()
         return divided
+    
 
 
 
@@ -79,6 +102,7 @@ class Game:
     def __init__(self):
         self.money = common.initial_money
         self.bet = 0
+        self.total_bets = 0
         self.minBet = common.min_bet
         self.shoe = Shoe()
         self.dealerStandSoft17 = common.dealerStandSoft17
@@ -200,8 +224,9 @@ class Game:
         elif action == "D":
             self.isDouble = True
             hand.append(self.shoe.draw_card())
-            self.money -= self.bet
-            self.bet *= 2
+            #self.money -= self.bet
+            #self.bet *= 2
+            self.place_bet(self.bet)
         elif action == "P":
             self.isSplit = True
             self.playerCards.append([hand[1]])
@@ -209,7 +234,7 @@ class Game:
             self.playerCards[0].append(self.shoe.draw_card())
             self.playerCards[1].append(self.shoe.draw_card())
             self.money -= self.bet
-
+            self.total_bets += self.bet
         elif action == "X":
             reward = -0.5
             self.money += 0.5 * self.bet
@@ -264,7 +289,9 @@ class Game:
             return float(self.shoe.running_count) / self.shoe.rem_decks
     
     def place_bet(self, bet):
-        self.bet = bet
+        #self.bet = bet
+        self.bet += bet
+        self.total_bets += bet
         self.money -= bet
     
     def handleBJ(self):

@@ -11,7 +11,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.stats import gmean
 import json
-from collections import defaultdict
 # import torch
 # import cupy as cp
 # matplotlib.use( 'tkagg' ) # we do savefig now, not needed
@@ -100,27 +99,14 @@ def createLpsDict(vec=False):
                 (rrewards, rhands) = d[key]
                 lps_dict[rounded] = (lrewards + rrewards, lhands + rhands)
     return lps_dict
-
-def createMatDict():
-    MatDict = dict()
-    Xvecs = list(itertools.product(range(5), repeat=10))
-    for x in Xvecs:
-        MatDict[(1,) + x] = (0,0)
-    return MatDict
-
-def default_val():
-    return (0,0)
-
 class CountAgent:
     def __init__(self,needMatrixes, vec=False):
         self.game = sim.Game()
         self.Q_table = bs.initBasicStrategy()
         self.countDict = initCountDict(self.game)
         if needMatrixes:
-            # self.MatDict = createMatDict()
-            self.MatDict = defaultdict(default_val)
-            # self.XVecs = np.zeros((common.n_test,14))
-            # self.YVec = np.zeros(common.n_test)
+            self.XVecs = np.zeros((common.n_test,14))
+            self.YVec = np.zeros(common.n_test)
         self.vec = vec
         self.needMatrixes = needMatrixes
 
@@ -198,8 +184,8 @@ class CountAgent:
         (count_rewards, touched) = self.countDict[round(count,1)]
         self.countDict[round(count,1)] = (count_rewards + rewards, touched + 1)
         if self.needMatrixes:
-            (vec_rewards, vec_touched) = self.MatDict[countVec] 
-            self.MatDict[countVec] = (vec_rewards + rewards, vec_touched + 1)
+            self.XVecs[testIdx,:] = countVec
+            self.YVec[testIdx] = rewards
 
         return rewards, wins
 
@@ -208,7 +194,7 @@ def batchGames(vec=False, loadWinRateFromDB=False):
     print("Starting batchGames")
     data = np.zeros((common.graphs_num_of_runs, common.graphs_max_hands))
     x_indices = np.arange(0,common.graphs_max_hands, common.graphs_sample_rate)
-    growths = np.zeros(common.graphs_num_of_runs)
+
     if loadWinRateFromDB:
         if vec:
             common.winrateDictVec = loadFromDB('winrateDictVec')
@@ -221,8 +207,6 @@ def batchGames(vec=False, loadWinRateFromDB=False):
         setMaxMin(common.winrateDict, vec)
 
     for i in tqdm(range(common.graphs_num_of_runs)):
-        # bets = 0
-        game_rewards = 0
         not_failed = True
         while(not_failed):
             countAgent = CountAgent(needMatrixes=False, vec=vec)
@@ -230,13 +214,11 @@ def batchGames(vec=False, loadWinRateFromDB=False):
             data[i][hands] = countAgent.game.money
             while countAgent.game.money >= countAgent.game.minBet and hands < common.graphs_max_hands:
                 #print("Money: " + str(countAgent.game.money) + f" , Hands = {hands}")#, end='\r') 
-                rewards, _ = countAgent.runLoop(hands,kellyBet=True) # i=0 is redundent, just to pass something
+                countAgent.runLoop(hands,kellyBet=True) # i=0 is redundent, just to pass something
                 if hands % common.graphs_sample_rate == 0:
                     data[i][hands] = countAgent.game.money
                     #print("Money: " + str(countAgent.game.money) + f" , Hands = {hands}")
                 hands +=1
-                
-                
 
                 if countAgent.game.money < countAgent.game.minBet:
                     print(f"This Sucks! I LOST ALL MY MONEY!! RUNNING AGAIN the {i}th run")
@@ -244,26 +226,10 @@ def batchGames(vec=False, loadWinRateFromDB=False):
                     not_failed = True
                 else:
                     not_failed = False
-                    # bets += countAgent.game.bet
-                    game_rewards += rewards
-        
-        # avg_bets = bets / (common.graphs_max_hands - 1)
-        # print(bets)
-        # growths[i] = countAgent.game.money / bets
-        
-        print(f'Mean[{i}] of manual calc: {rewards / (common.graphs_max_hands)}')
-    
-    print(f'Mean of countDict: {np.mean(list(common.winrateDict.values()))}')
-    print([x for x in common.winrateDict.values() if x > 0])
-    print(f'Mean of positive countDict: {np.mean([x for x in common.winrateDict.values() if x > 0])}')
-    # print(f'The mean of growth: {growths.mean()}')
-
 
     data = data[:,x_indices]
 
-    
-
-    #avg = np.mean(data, axis=0)
+    avg = np.mean(data, axis=0)
     percentile = np.percentile(data, 50, axis=0)
     geo_mean = gmean(data, axis=0)
 
@@ -273,7 +239,7 @@ def batchGames(vec=False, loadWinRateFromDB=False):
     game_setting = 'Vec' if vec else 'HiLo'
     plt.title(f"Money - Hands\nRunning {common.graphs_num_of_runs} hands\n{game_setting} - n_test={common.n_test//common.MILLION}Mil")
     ax.set_yscale('log')
-    #plt.plot(x_indices, avg,label=f'Avg')
+    plt.plot(x_indices, avg,label=f'Avg')
     plt.plot(x_indices, percentile,label=f'Median')
     plt.plot(x_indices, geo_mean,label=f'Geo Avg')
 
@@ -301,25 +267,30 @@ def setMaxMin(d : dict, vec):
 
 def linear_reg(countAgent : CountAgent):
     print("\nStarting linaer_reg")
+    # sortedVecs = sorted(countAgent.XVecs)
+
+    # firstOcc = 0
+    # sum = 0
+    # XVecs = []
+    # YVec = []
+    # XVecs.append(sortedVecs[0][0])
+    # for runner, vecTuple in enumerate(tqdm(sortedVecs)):
+    #     if vecTuple[0] == XVecs[-1]:
+    #         sum += vecTuple[1]
+    #     else:
+    #         YVec.append(sum/(runner-firstOcc))
+    #         firstOcc = runner
+    #         sum = vecTuple[1]
+    #         XVecs.append(vecTuple[0])
+
+    # # Handle last item.
+    # YVec.append(sum/(len(sortedVecs[1])-firstOcc))
 
     # device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    
-    # X = countAgent.XVecs
-    # Y = countAgent.YVec
 
-    X = []
-    Y = []
 
-    for x in countAgent.MatDict.keys():
-        rewards = countAgent.MatDict[x][0]
-        hands = countAgent.MatDict[x][1]
-        if (hands != 0):
-            X.append(x)
-            Y.append(rewards / hands)
-    
-    X = np.array(X)
-
-    Y = np.array(Y)
+    X = countAgent.XVecs
+    Y = countAgent.YVec
 
     print(X.shape)
     print(Y.shape)
@@ -327,18 +298,15 @@ def linear_reg(countAgent : CountAgent):
     print("Calculating w..\n")
     w = np.linalg.inv(X.T @ X) @ X.T @ Y
 
-    #sum = np.sum(w)
-    w[10] = w[10] / 4 # Normalize after the calculation
-
     #print(w)
     print(f'Bias = {w[0]}')
     d = dict()
-    for i in range(1,11):
+    for i in range(1,14):
         d[i] = w[i] * 1000
 
     pprint(d)
     
-    print(f'Sum of vector = {sum(d.values()) + 3*d[10]}')
+    print(f'Sum of vector = {sum(d.values())}')
     sim.cards_vec_count = d
     with open("data/w_vector.txt", "w") as f:
         # Writing data to a file
@@ -422,48 +390,12 @@ def run_create_vec():
     linear_reg(countAgent)
     # saveToDB('countDict', countAgent.countDict) shouldnt be here, moved to final test, using the right w vector.
 
-def calculateEdge(vec, loadWinRateFromDB):
-    if loadWinRateFromDB:
-        if vec:
-            countDict = loadFromDB('countDict')
-        else:
-            countDict = loadFromDB('countDict')
-    tmpDict = dict()
-    for key in countDict.keys():
-        if abs(key) < getLPSLimit(vec):
-            rounded = roundCount(key)
-            if rounded not in tmpDict:
-                tmpDict[rounded] = countDict[key][1]
-            else:
-                tmpDict[rounded] += countDict[key][1]
-
-    probDict = dict()
-    for key in tmpDict.keys():
-        hands = tmpDict[key] 
-        if hands > common.lps_threshold:
-            probDict[key] = (hands / common.n_test)
-
-    # pprint(probDict)
-    # print(f'Sum of Probabilities: {sum(probDict.values())}')
-
-    edge = 0
-    for key in [x for x in probDict.keys() if x > 0]:
-        edge += common.winrateDict[key] * probDict[key]
-
-    # edge -= 0.005 # house edge
-    print(f'{edge*100}%')
-
-
-
-    
-
 def main():
     initializeDB()
     run_create_vec()
     finalTest(vec=True)
     batchGames(vec=True,loadWinRateFromDB=True) # Vectorized
-    # batchGames(vec=False,loadWinRateFromDB=False) # HiLo
-    calculateEdge(vec=True,loadWinRateFromDB=True)
+    # batchGames(vec=False,loadWinRateFromDB=True) # HiLo
 
 if __name__ == '__main__':
     main()

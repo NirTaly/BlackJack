@@ -11,12 +11,15 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.stats import gmean
 import json
-from collections import defaultdict
+from sklearn.linear_model import LinearRegression
+from sklearn.linear_model import Ridge
+
 # import torch
 # import cupy as cp
 # matplotlib.use( 'tkagg' ) # we do savefig now, not needed
 
-alreadyRunLoop = False
+
+
 def roundCount(count, vec=False):
     count  = round(count * 2)/2 #if vec == False else count
     return count
@@ -100,27 +103,14 @@ def createLpsDict(vec=False):
                 (rrewards, rhands) = d[key]
                 lps_dict[rounded] = (lrewards + rrewards, lhands + rhands)
     return lps_dict
-
-def createMatDict():
-    MatDict = dict()
-    Xvecs = list(itertools.product(range(5), repeat=10))
-    for x in Xvecs:
-        MatDict[(1,) + x] = (0,0)
-    return MatDict
-
-def default_val():
-    return (0,0)
-
 class CountAgent:
     def __init__(self,needMatrixes, vec=False):
         self.game = sim.Game()
         self.Q_table = bs.initBasicStrategy()
         self.countDict = initCountDict(self.game)
         if needMatrixes:
-            # self.MatDict = createMatDict()
-            self.MatDict = defaultdict(default_val)
-            # self.XVecs = np.zeros((common.n_test,14))
-            # self.YVec = np.zeros(common.n_test)
+            self.XVecs = np.zeros((common.n_test,11))
+            self.YVec = np.zeros(common.n_test)
         self.vec = vec
         self.needMatrixes = needMatrixes
 
@@ -148,32 +138,40 @@ class CountAgent:
                            itertools.islice(self.Q_table[game_state][(player_state, dealer_state)].items(), 2)).get)
 
     # function that place the best bet, probably according to Kelly criterion
-    def getBet(self,vec):
-        count = roundCount(self.game.get_count(vec), vec)
-        if count < getWinrateMaxMin(max=False,vec=vec):
-            count = getWinrateMaxMin(max=False,vec=vec)
-        elif count > getWinrateMaxMin(max=True,vec=vec):
-            count = getWinrateMaxMin(max=True,vec=vec)
-        if vec:
-            p = 0.5 + common.winrateDictVec[count]
+    def getBet(self,betMethod):
+        if betMethod == 'const':
+            return 1
         else:
-            p = 0.5 + common.winrateDict[count]
-        q = 1 - p
-        bet = max (self.game.minBet, int(self.game.money * (p - q)))
-        return bet
+            count = roundCount(self.game.get_count(self.vec), self.vec)
+            if count < getWinrateMaxMin(max=False,vec=self.vec):
+                count = getWinrateMaxMin(max=False,vec=self.vec)
+            elif count > getWinrateMaxMin(max=True,vec=self.vec):
+                count = getWinrateMaxMin(max=True,vec=self.vec)
 
-    def runLoop(self,testIdx,kellyBet=False):
-        count = self.game.get_count(vec=self.vec)
-        countVec = tuple(self.game.shoe.getNormVec())
-        game_state, player_state = self.game.reset_hands()
-        if kellyBet:
-            self.game.place_bet(self.getBet(self.vec))
+            if self.vec:
+                E = common.winrateDictVec[count]
+            else:
+                E = common.winrateDict[count]
+
+            if betMethod == 'spread':
+                return self.game.minBet if E <= 0 else self.game.minBet * common.spread
+
+            elif betMethod == 'kelly':
+                p = 0.5 + E
+                q = 1 - p
+                bet = max (self.game.minBet, int(self.game.money * (p - q)))
+                return bet
+
+    def runLoop(self,testIdx,betMethod='const'):
+        if self.needMatrixes:
+            countVec = tuple(self.game.shoe.getNormVec())
         else:
-            self.game.place_bet(1)
-        # print(f"hand = {testIdx}")
-        # print(f"count = {count}")
-        # print(f"bet = {self.getBet(self.vec)}")
-        # input()
+            count = self.game.get_count(vec=self.vec)
+
+        game_state, player_state = self.game.reset_hands()
+        
+        self.game.place_bet(self.getBet(betMethod))
+
         reward, done = self.handleBJ()
         for i, _ in enumerate(self.game.playerCards):
             while not done:
@@ -195,20 +193,20 @@ class CountAgent:
         else:
             wins = 1 if (reward > 0) else 0
 
-        (count_rewards, touched) = self.countDict[round(count,1)]
-        self.countDict[round(count,1)] = (count_rewards + rewards, touched + 1)
         if self.needMatrixes:
-            (vec_rewards, vec_touched) = self.MatDict[countVec] 
-            self.MatDict[countVec] = (vec_rewards + rewards, vec_touched + 1)
+            self.XVecs[testIdx, :] = countVec
+            self.YVec[testIdx] = rewards
+        else:
+            (count_rewards, touched) = self.countDict[round(count, 1)]
+            self.countDict[round(count, 1)] = (count_rewards + rewards, touched + 1)
 
         return rewards, wins
 
-def batchGames(vec=False, loadWinRateFromDB=False):
-    # hands = 0
-    print("Starting batchGames")
+def batchGames(vec=False, loadWinRateFromDB=False, betMethod='kelly'):
+    print(f'Starting batchGames - vec={vec}, betMethod={betMethod}')
     data = np.zeros((common.graphs_num_of_runs, common.graphs_max_hands))
     x_indices = np.arange(0,common.graphs_max_hands, common.graphs_sample_rate)
-    growths = np.zeros(common.graphs_num_of_runs)
+
     if loadWinRateFromDB:
         if vec:
             common.winrateDictVec = loadFromDB('winrateDictVec')
@@ -220,63 +218,57 @@ def batchGames(vec=False, loadWinRateFromDB=False):
     else:
         setMaxMin(common.winrateDict, vec)
 
+    edge_per_bet_sum = 0
+    avg_bet_sum = 0
     for i in tqdm(range(common.graphs_num_of_runs)):
-        # bets = 0
-        game_rewards = 0
-        not_failed = True
-        while(not_failed):
+        failed = True
+        while(failed):
             countAgent = CountAgent(needMatrixes=False, vec=vec)
             hands = 0
-            data[i][hands] = countAgent.game.money
-            while countAgent.game.money >= countAgent.game.minBet and hands < common.graphs_max_hands:
-                #print("Money: " + str(countAgent.game.money) + f" , Hands = {hands}")#, end='\r') 
-                rewards, _ = countAgent.runLoop(hands,kellyBet=True) # i=0 is redundent, just to pass something
+            data[i][0] = countAgent.game.money
+            while hands < common.graphs_max_hands:
+                if countAgent.game.money < countAgent.game.minBet and betMethod != "spread":
+                    print(f"This Sucks! I LOST ALL MY MONEY!! RUNNING AGAIN the {i}th run")
+                    failed = True
+                    hands -= 1
+                    break
+                else:
+                    failed = False
+
+                countAgent.runLoop(hands,betMethod) # i=0 is redundent, just to pass something
                 if hands % common.graphs_sample_rate == 0:
                     data[i][hands] = countAgent.game.money
-                    #print("Money: " + str(countAgent.game.money) + f" , Hands = {hands}")
                 hands +=1
-                
-                
+            edge_per_bet_sum += (countAgent.game.money - common.initial_money) / countAgent.game.total_bets
+            avg_bet_sum += (countAgent.game.total_bets)/((common.graphs_max_hands-1)*common.min_bet)
 
-                if countAgent.game.money < countAgent.game.minBet:
-                    print(f"This Sucks! I LOST ALL MY MONEY!! RUNNING AGAIN the {i}th run")
-                    # i-=1 shouldnt be i-=1 because the i did not inscrease yet, we are inside a while
-                    not_failed = True
-                else:
-                    not_failed = False
-                    # bets += countAgent.game.bet
-                    game_rewards += rewards
-        
-        # avg_bets = bets / (common.graphs_max_hands - 1)
-        # print(bets)
-        # growths[i] = countAgent.game.money / bets
-        
-        print(f'Mean[{i}] of manual calc: {rewards / (common.graphs_max_hands)}')
+            #print(f'player edge\t=\t{(countAgent.game.money - common.initial_money)/(countAgent.game.total_bets)}')
+            #print(f'avg bet\t\t=\t{(countAgent.game.total_bets)/((common.graphs_max_hands-1)*common.min_bet)}')
     
-    print(f'Mean of countDict: {np.mean(list(common.winrateDict.values()))}')
-    print([x for x in common.winrateDict.values() if x > 0])
-    print(f'Mean of positive countDict: {np.mean([x for x in common.winrateDict.values() if x > 0])}')
-    # print(f'The mean of growth: {growths.mean()}')
-
-
+    
     data = data[:,x_indices]
 
-    
-
-    #avg = np.mean(data, axis=0)
+    avg = np.mean(data, axis=0)
     percentile = np.percentile(data, 50, axis=0)
     geo_mean = gmean(data, axis=0)
+    
+    #print(f'final values:\navg\t\t=\t{avg[-1]}\t\t\tpercentile={percentile[-1]}\t\t\tgeo_mean={geo_mean[-1]}')
+    #print(f'min bet\t\t=\t{common.min_bet}\t\t\tspread\t=\t{common.spread}')
+    print(f'spread edge\t=\t{(avg[-1] - common.initial_money)/((common.graphs_max_hands-1) * common.min_bet)}')
+    print(f'E[edge per bet]\t=\t{edge_per_bet_sum/(common.graphs_num_of_runs)}')
+    print(f'E[bet]\t\t=\t{avg_bet_sum/(common.graphs_num_of_runs)}')
 
     fig, ax = plt.subplots()
     plt.xlabel('Hands')
     plt.ylabel('Money')
     game_setting = 'Vec' if vec else 'HiLo'
     plt.title(f"Money - Hands\nRunning {common.graphs_num_of_runs} hands\n{game_setting} - n_test={common.n_test//common.MILLION}Mil")
-    ax.set_yscale('log')
-    #plt.plot(x_indices, avg,label=f'Avg')
+    if betMethod == 'kelly':
+        ax.set_yscale('log')
+    plt.plot(x_indices, avg,label=f'Avg')
     plt.plot(x_indices, percentile,label=f'Median')
     plt.plot(x_indices, geo_mean,label=f'Geo Avg')
-
+    
     plt.legend()
     plt.savefig(f'res/MoneyGraph_vec_{vec}',dpi=500)
 
@@ -302,42 +294,30 @@ def setMaxMin(d : dict, vec):
 def linear_reg(countAgent : CountAgent):
     print("\nStarting linaer_reg")
 
-    # device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    
-    # X = countAgent.XVecs
-    # Y = countAgent.YVec
-
-    X = []
-    Y = []
-
-    for x in countAgent.MatDict.keys():
-        rewards = countAgent.MatDict[x][0]
-        hands = countAgent.MatDict[x][1]
-        if (hands != 0):
-            X.append(x)
-            Y.append(rewards / hands)
-    
-    X = np.array(X)
-
-    Y = np.array(Y)
+    X = countAgent.XVecs
+    Y = countAgent.YVec
 
     print(X.shape)
     print(Y.shape)
     print(X)
     print("Calculating w..\n")
-    w = np.linalg.inv(X.T @ X) @ X.T @ Y
 
-    #sum = np.sum(w)
+    #model = LinearRegression(copy_X=False, n_jobs=-1).fit(X,Y)
+    model = Ridge(copy_X=False).fit(X,Y)
+    w = model.coef_
+    bias = model.intercept_
+
+    #w = np.linalg.inv(X.T @ X) @ X.T @ Y
+
     w[10] = w[10] / 4 # Normalize after the calculation
 
-    #print(w)
-    print(f'Bias = {w[0]}')
+    print(f'Bias = {bias}')
     d = dict()
     for i in range(1,11):
         d[i] = w[i] * 1000
 
     pprint(d)
-    
+
     print(f'Sum of vector = {sum(d.values()) + 3*d[10]}')
     sim.cards_vec_count = d
     with open("data/w_vector.txt", "w") as f:
@@ -377,7 +357,6 @@ def count_graphs(vec):
 
     fig = plt.gcf()
     plt.savefig(f'res/CountNormalized_vec_{vec}',dpi=500)
-    #plt.show()
 
 
     # fig = plt.figure(figsize=(8,5))
@@ -420,50 +399,13 @@ def run_create_vec():
         countAgent.runLoop(i)
 
     linear_reg(countAgent)
-    # saveToDB('countDict', countAgent.countDict) shouldnt be here, moved to final test, using the right w vector.
-
-def calculateEdge(vec, loadWinRateFromDB):
-    if loadWinRateFromDB:
-        if vec:
-            countDict = loadFromDB('countDict')
-        else:
-            countDict = loadFromDB('countDict')
-    tmpDict = dict()
-    for key in countDict.keys():
-        if abs(key) < getLPSLimit(vec):
-            rounded = roundCount(key)
-            if rounded not in tmpDict:
-                tmpDict[rounded] = countDict[key][1]
-            else:
-                tmpDict[rounded] += countDict[key][1]
-
-    probDict = dict()
-    for key in tmpDict.keys():
-        hands = tmpDict[key] 
-        if hands > common.lps_threshold:
-            probDict[key] = (hands / common.n_test)
-
-    # pprint(probDict)
-    # print(f'Sum of Probabilities: {sum(probDict.values())}')
-
-    edge = 0
-    for key in [x for x in probDict.keys() if x > 0]:
-        edge += common.winrateDict[key] * probDict[key]
-
-    # edge -= 0.005 # house edge
-    print(f'{edge*100}%')
-
-
-
-    
 
 def main():
-    initializeDB()
-    run_create_vec()
-    finalTest(vec=True)
-    batchGames(vec=True,loadWinRateFromDB=True) # Vectorized
-    # batchGames(vec=False,loadWinRateFromDB=False) # HiLo
-    calculateEdge(vec=True,loadWinRateFromDB=True)
+    #initializeDB()
+    #run_create_vec()
+    #finalTest(vec=True)
+    batchGames(vec=False,loadWinRateFromDB=False, betMethod='spread') # betMethod='const'/'kelly'/'spread'
+    batchGames(vec=True,loadWinRateFromDB=False, betMethod='spread') # betMethod='const'/'kelly'/'spread'
 
 if __name__ == '__main__':
     main()
