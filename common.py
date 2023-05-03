@@ -1,3 +1,4 @@
+import numpy as np
 # Constants
 DECK_SIZE = 4*13              #13 cards, each have 4 shapes
 COUNT_MAX_VAL_DECK = (5)*5*4  #value of  1, 5 cards ([2..6]), each have 4 shapes
@@ -10,7 +11,7 @@ MILLION = 1000000
 
 n_learning = 30 * MILLION
 n_train = 10 * MILLION
-n_test = int(500 * MILLION)
+n_test = int(2000 * MILLION)
 
 lps_limit_vec = 200
 lps_limit_max_vec = 123.5
@@ -22,11 +23,14 @@ lps_threshold = 50
 
 graphs_max_hands = 30001
 graphs_sample_rate = 1000
-graphs_num_of_runs = 1000
+graphs_num_of_runs = 100
 
 # Rules
 dealerStandSoft17 = True
 splitAcesAndDone = False
+
+w = np.array([-0.0037616653426486386, -10.56587054469904, 6.493167968455492, 7.668256698584405, 9.802723819544475, 12.304188815939884, 7.361253144650245, 3.81353521241866, -0.5954200728833672, -3.423817659734873, -8.21694052354982])
+
 
 #[-0.00671043  0.00327551 -0.00204011 -0.00243746 -0.00309319 -0.00393226
 # -0.00263076 -0.0010046  -0.00013218  0.0010313   0.00272583  0.00293946

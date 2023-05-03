@@ -130,7 +130,7 @@ class Game:
         self.isDouble = False
         self.currHand = 0
         self.first_move = True
-        self.bet = 0
+        # self.bet = 0
 
         # card draw
         if not onlyPairs:
@@ -224,9 +224,10 @@ class Game:
         elif action == "D":
             self.isDouble = True
             hand.append(self.shoe.draw_card())
-            #self.money -= self.bet
-            #self.bet *= 2
-            self.place_bet(self.bet)
+            self.money -= self.bet
+            self.bet *= 2
+            self.total_bets += self.bet
+            # self.place_bet(self.bet)
         elif action == "P":
             self.isSplit = True
             self.playerCards.append([hand[1]])
@@ -290,7 +291,7 @@ class Game:
     
     def place_bet(self, bet):
         #self.bet = bet
-        self.bet += bet
+        self.bet = bet
         self.total_bets += bet
         self.money -= bet
     

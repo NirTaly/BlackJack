@@ -1,23 +1,16 @@
 from tqdm import tqdm
-from tqdm.contrib.itertools import product
 import learning
 import simulator as sim
 import basic_strategy as bs
 import common
 import itertools
 from pprint import pprint
-import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy.stats import gmean
 import json
 from sklearn.linear_model import LinearRegression
 from sklearn.linear_model import Ridge
-
-# import torch
-# import cupy as cp
-# matplotlib.use( 'tkagg' ) # we do savefig now, not needed
-
 
 
 def roundCount(count, vec=False):
@@ -149,7 +142,9 @@ class CountAgent:
                 count = getWinrateMaxMin(max=True,vec=self.vec)
 
             if self.vec:
-                E = common.winrateDictVec[count]
+                # E = common.winrateDictVec[count]
+                vector = self.game.shoe.countVec
+                E = (common.w.T @ vector / 1000) / self.game.shoe.rem_decks
             else:
                 E = common.winrateDict[count]
 
@@ -168,9 +163,10 @@ class CountAgent:
         else:
             count = self.game.get_count(vec=self.vec)
 
+
+        self.game.place_bet(self.getBet(betMethod))
         game_state, player_state = self.game.reset_hands()
         
-        self.game.place_bet(self.getBet(betMethod))
 
         reward, done = self.handleBJ()
         for i, _ in enumerate(self.game.playerCards):
@@ -401,11 +397,11 @@ def run_create_vec():
     linear_reg(countAgent)
 
 def main():
-    #initializeDB()
+    # initializeDB()
     #run_create_vec()
-    #finalTest(vec=True)
-    batchGames(vec=False,loadWinRateFromDB=False, betMethod='spread') # betMethod='const'/'kelly'/'spread'
-    batchGames(vec=True,loadWinRateFromDB=False, betMethod='spread') # betMethod='const'/'kelly'/'spread'
+    # finalTest(vec=True)
+    batchGames(vec=False,loadWinRateFromDB=False, betMethod='kelly') # betMethod='const'/'kelly'/'spread'
+    batchGames(vec=True,loadWinRateFromDB=True, betMethod='kelly') # betMethod='const'/'kelly'/'spread
 
 if __name__ == '__main__':
     main()
