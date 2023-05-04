@@ -26,6 +26,7 @@ class Shoe:
     def __init__(self, n=common.num_of_decks):
         self.n = n
         self.cards = []
+        self.penetration = common.penetration
         self.rebuild()
 
     def draw_card(self):
@@ -55,20 +56,30 @@ class Shoe:
         self.countVec[0] = 1 # Bias always = 1
         self.rem_decks = self.n
         self.cards = [*range(1, 14)] * 4 * self.n
+
+        # penetration
+        num_of_cards_to_remove = int(common.DECK_SIZE * common.num_of_decks * (1 - self.penetration))
+        del self.cards[:num_of_cards_to_remove]
+
         random.shuffle(self.cards)
+
 
     def getNormVec(self):
         divided = self.countVec / self.rem_decks
         divided[0] = 1
         divided[10] = divided[10] / 4
-        # return divided.round()
         return divided
     
 
-
-
 class Game:
     def __init__(self):
+        self.first_move = True
+        self.currHand = 0
+        self.isDouble = False
+        self.isSplit = False
+        self.playerCards = [[]]
+        self.dealerCards = []
+        self.dealer_state = 0
         self.money = common.initial_money
         self.bet = 0
         self.total_bets = 0
@@ -99,7 +110,6 @@ class Game:
         self.isDouble = False
         self.currHand = 0
         self.first_move = True
-        # self.bet = 0
 
         # card draw
         if not onlyPairs:
@@ -107,9 +117,9 @@ class Game:
                 self.playerCards[0].append(self.shoe.draw_card())
                 self.dealerCards.append(self.shoe.draw_card())
 
-            if (self.playerCards[0][0] == self.playerCards[0][1]):
+            if self.playerCards[0][0] == self.playerCards[0][1]:
                 game_state = 2
-            elif (self.playerCards[0].count(1) == 1):
+            elif self.playerCards[0].count(1) == 1:
                 game_state = 1
             else:
                 game_state = 0
@@ -196,7 +206,6 @@ class Game:
             self.money -= self.bet
             self.bet *= 2
             self.total_bets += self.bet
-            # self.place_bet(self.bet)
         elif action == "P":
             self.isSplit = True
             self.playerCards.append([hand[1]])
@@ -259,7 +268,6 @@ class Game:
             return float(self.shoe.running_count) / self.shoe.rem_decks
     
     def place_bet(self, bet):
-        #self.bet = bet
         self.bet = bet
         self.total_bets += bet
         self.money -= bet
@@ -271,7 +279,7 @@ class Game:
         if player_state == 21 or dealer_sum == 21:
             reward = self.rewardHandler(dealer_sum, [player_state])
             if reward > 0:
-                self.game.money += (5/2) * self.game.bet
+                self.money += (5/2) * self.bet
                 reward *= 1.5
             done = True
         return reward, done
@@ -279,9 +287,8 @@ class Game:
 
 def main():
     game = Game()
-    done=0
     print("your current budget is ", game.money)
-    while (game.money >= game.minBet):
+    while game.money >= game.minBet:
         game.reset_hands()
         game.place_bet(int(input("place bet - min: " + str(game.minBet) + "\tmax: " + str(game.money) + ":\t")))
         game.print_hands(False)
@@ -296,7 +303,6 @@ def main():
                 done = False
 
         print("your current budget is ", game.money)
-        done = False
 
 
 if __name__ == '__main__':

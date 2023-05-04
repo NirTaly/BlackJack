@@ -12,6 +12,7 @@ from scipy.stats import gmean
 import json
 from sklearn.linear_model import LinearRegression
 from sklearn.linear_model import Ridge
+from fractions import Fraction
 
 def saveToDB(key, d):
     with open('data/dicts.json', "r+") as f:
@@ -296,20 +297,25 @@ def count_graphs(vec):
 
     fig = plt.figure(figsize=(8,5))
     fig.add_subplot(211)
-    plt.title("normalized")
+    plt.title(f'Reward per Count\nNormalized by # of Occurrences per count ')
+    plt.xlabel('Count')
+    plt.ylabel(r'$Reward_i/N_i$')
     plt.bar(*zip(*normalized_dict.items()))
+
     fig.add_subplot(212)
     plt.bar(*zip(*only.items()))
-    plt.title("not normalized")
-
+    plt.title("Total Rewards - Count")
+    plt.xlabel('Count')
+    plt.ylabel('Rewards')
     plt.savefig(f'res/CountNormalized_vec_{vec}', dpi=500)
 
-
-    # fig = plt.figure(figsize=(8,5))
-    # fig.add_subplot(111)
-    # plt.title("Histogram")
-    # plt.bar(*zip(*getOnlyHands(lps).items()))
-    # plt.show()
+    fig = plt.figure(figsize=(8,5))
+    fig.add_subplot(111)
+    plt.title("Histogram")
+    plt.xlabel('Count')
+    plt.ylabel('# of Occurrences')
+    plt.bar(*zip(*getOnlyHands(lps).items()))
+    plt.savefig(f'res/Histogram')
 
 def finalTest(vec = False):
     print("\nStarting finalTest")
@@ -323,7 +329,7 @@ def finalTest(vec = False):
 
 
 def batchGames(vec=False, loadWinRateFromDB=False, betMethod='kelly'):
-    print(f'Starting batchGames - vec={vec}, betMethod={betMethod}')
+    # print(f'Starting batchGames - vec={vec}, betMethod={betMethod}')
     data = np.zeros((common.graphs_num_of_runs, common.graphs_max_hands))
     x_indices = np.arange(0, common.graphs_max_hands, common.graphs_sample_rate)
 
@@ -339,7 +345,8 @@ def batchGames(vec=False, loadWinRateFromDB=False, betMethod='kelly'):
         setMaxMin(common.winrateDict, vec)
 
     avg_bet_sum = 0
-    for i in tqdm(range(common.graphs_num_of_runs)):
+    # for i in tqdm(range(common.graphs_num_of_runs)):
+    for i in range(common.graphs_num_of_runs):
         failed = True
         while failed:
             countAgent = CountAgent(needMatrixes=False, vec=vec)
@@ -366,18 +373,18 @@ def batchGames(vec=False, loadWinRateFromDB=False, betMethod='kelly'):
 # betMethod: 'const'/'kelly'/'spread'
 def batchGamesAndFig(betMethod='kelly'):
     x_indices = np.arange(0, common.graphs_max_hands, common.graphs_sample_rate)
-    hiloData, hilo_avg_bet_sum = batchGames(vec=False,loadWinRateFromDB=False, betMethod='kelly')
-    vecData, vec_avg_bet_sum = batchGames(vec=True,loadWinRateFromDB=True, betMethod='kelly')
+    hiloData, hilo_avg_bet_sum = batchGames(vec=False,loadWinRateFromDB=False, betMethod=betMethod)
+    vecData, vec_avg_bet_sum = batchGames(vec=True,loadWinRateFromDB=True, betMethod=betMethod)
 
     vec_mean = np.mean(vecData, axis=0)
     vec_gmean = gmean(vecData, axis=0)
     vec_std = np.std(vecData, axis=0)
+    vec_norm_std = vec_std / vec_mean
 
     hilo_mean = np.mean(hiloData, axis=0)
     hilo_gmean = gmean(hiloData, axis=0)
     hilo_std = np.std(hiloData, axis=0)
-
-    # print (f'Vec std = {vec_std}\t\t HiLo std = {hilo_std}')
+    hilo_norm_std = hilo_std / hilo_mean
 
     if betMethod == 'spread':
         print('Vec results:')
@@ -410,18 +417,63 @@ def batchGamesAndFig(betMethod='kelly'):
     fig, ax = plt.subplots()
     plt.xlabel('Hands')
     plt.ylabel('Money')
-    plt.title(f"Money - Hands\nRunning {common.graphs_num_of_runs} games\nn_test = {common.n_test // common.MILLION}M")
-    if betMethod == 'kelly':
-        ax.set_yscale('log')
+    plt.title(f"STD\nRunning {common.graphs_num_of_runs} games\nn_test = {common.n_test // common.MILLION}M")
 
     # Vec subplot
-    ax.plot(x_indices, vec_std, label='Vec STD', color='blue', linestyle='-')
+    ax.plot(x_indices, vec_norm_std, label='Vec STD', color='blue', linestyle='-')
     # HiLo subplot
-    ax.plot(x_indices, hilo_std, label='HiLo STD', color='red', linestyle='-')
+    ax.plot(x_indices, hilo_norm_std, label='HiLo STD', color='red', linestyle='-')
 
     plt.legend()
     plt.grid(True)
     plt.savefig(f'res/STDGraph', dpi=500)
+
+def batchcGamesAndPenetrate(betMethod='kelly'):
+    vecPenDatas_mean = []
+    vecPenDatas_gmean = []
+    hiloPenDatas_mean = []
+    hiloPenDatas_gmean = []
+
+    a,b = common.penetration_sample_rate.split('/')
+    pen_rate = float(a) / float(b)
+    x_indices = np.arange(1,0,-pen_rate)
+
+    for penetration in tqdm(x_indices):
+        common.penetration = penetration
+
+        hiloData, _ = batchGames(vec=False, loadWinRateFromDB=False, betMethod=betMethod)
+        vecData, _ = batchGames(vec=True, loadWinRateFromDB=True, betMethod=betMethod)
+
+        vec_mean = np.mean(vecData, axis=0)
+        vec_gmean = gmean(vecData, axis=0)
+        hilo_mean = np.mean(hiloData, axis=0)
+        hilo_gmean = gmean(hiloData, axis=0)
+
+        vecPenDatas_mean.append(vec_mean[-1])
+        vecPenDatas_gmean.append(vec_gmean[-1])
+        hiloPenDatas_mean.append(hilo_mean[-1])
+        hiloPenDatas_gmean.append(hilo_gmean[-1])
+
+    fig, ax = plt.subplots()
+    plt.title(f'Money - Penetration\nPenetration Sample Rate = {common.penetration_sample_rate}\nRunning {common.graphs_num_of_runs} games each')
+    plt.xlabel(f'# of Played Decks out of {common.num_of_decks}')
+    plt.xticks(np.arange(0, common.num_of_decks+0.5, 0.5))
+    plt.ylabel('Money')
+    if betMethod == 'kelly':
+        ax.set_yscale('log')
+
+    x_indices *= common.num_of_decks
+
+    # Vec subplots
+    ax.plot(x_indices, vecPenDatas_mean, label='Vec Mean', color='blue', linestyle='--')
+    ax.plot(x_indices, vecPenDatas_gmean, label='Vec Geo Mean', color='blue', linestyle='-')
+    # HiLo subplots
+    ax.plot(x_indices, hiloPenDatas_mean, label='HiLo Mean', color='red', linestyle='--')
+    ax.plot(x_indices, hiloPenDatas_gmean, label='HiLo Geo Mean', color='red', linestyle='-')
+
+    plt.legend()
+    plt.grid(True)
+    plt.savefig(f'res/MoneyPerPenetration', dpi=500)
 
 def run_create_vec():
     print("\nStarting run_create_vec")
@@ -435,7 +487,8 @@ def main():
     # initializeDB()
     # run_create_vec()
     # finalTest(vec=True)
-    batchGamesAndFig(betMethod='kelly')
+    batchGamesAndFig(betMethod='spread')
+    # batchcGamesAndPenetrate(betMethod='kelly')
 
 if __name__ == '__main__':
     main()

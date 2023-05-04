@@ -22,13 +22,16 @@ lps_threshold = 50
 
 graphs_max_hands = 30001
 graphs_sample_rate = 1000
-graphs_num_of_runs = 1000
+graphs_num_of_runs = 100
+
+penetration_sample_rate = '1/12'
 
 # Rules
 dealerStandSoft17 = True
 splitAcesAndDone = False
 num_of_decks = 6
 min_bet = initial_money // 200
+penetration = 1.0  # % of cards to play with (1-penetration = % of cards to remove)
 
 w = np.array([-0.0037616653426486386, -10.56587054469904, 6.493167968455492, 7.668256698584405, 9.802723819544475, 12.304188815939884, 7.361253144650245, 3.81353521241866, -0.5954200728833672, -3.423817659734873, -8.21694052354982])
 
