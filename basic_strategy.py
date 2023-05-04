@@ -61,9 +61,6 @@ def initBasicStrategy():
         for d in range(2, 12):
             Q_table_hard[(p, d)]['S'] = 1
 
-    # hard_policy = CreatePolicyTable(Q_table_hard)
-    # print(pd.DataFrame(hard_policy[4:, 2:], columns=[2, 3, 4, 5, 6, 7, 8, 9, 10, 'A'], index=list(range(4, 22))))
-
     # -- SOFT --
     # 13,14 against 2-4,7-11 *HIT*
     for p in range(13, 18):
