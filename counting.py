@@ -1,3 +1,5 @@
+import os
+
 from tqdm import tqdm
 import learning
 import simulator as sim
@@ -9,28 +11,43 @@ from pprint import pprint
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy.stats import gmean
-import json
+import pickle
 from sklearn.linear_model import LinearRegression
 from sklearn.linear_model import Ridge
-from fractions import Fraction
+import multiprocessing as mp
 
 def saveToDB(key, d):
-    with open('data/dicts.json', "r+") as f:
-        data = json.load(f)
-        if data is None:
-            data = dict()
-        data[key] = d
-        f.seek(0)
-        json.dump(data,f, indent=2)
+    with open('data/dicts.pkl', 'rb') as f:
+        data = pickle.load(f)
+    data[key] = d
+    with open('data/dicts.pkl', 'wb') as f:
+        pickle.dump(data, f)
 def loadFromDB(key):
-    with open('data/dicts.json', 'rb') as f:
-        data = json.load(f)
-        d = {float(k): v for k,v in data[key].items()}
+    with open('data/dicts.pkl', 'rb') as f:
+        data = pickle.load(f)
+        d = data[key]
         return d
 def initializeDB():
-    with open('data/dicts.json', 'w') as f:
-        json.dump({}, f)
+    saveToDB('countDict_True', {})
+    saveToDB('countDict_False', {})
+    saveToDB('winrateDictVec', {})
+    saveToDB('winrateDict', {})
 
+
+def join_dicts(dict1: dict, dict2: dict) -> dict:
+    """
+    Join two dictionaries.
+
+    Args:
+        dict1 (dict): The first dictionary.
+        dict2 (dict): The second dictionary.
+
+    Returns:
+        dict: A new dictionary that holds the join of the two dictionaries. If a key is in both dictionaries,
+        it will save the sum of the values as `(a.val1 + b.val1, a.val2 + b.val2)`. If a key is only in one dictionary,
+        it will save the value from that dictionary.
+    """
+    return {k: (dict1[k][0] + dict2[k][0], dict1[k][1] + dict2[k][1]) if k in dict1 and k in dict2 else dict1.get(k, dict2.get(k)) for k in set(dict1) | set(dict2)}
 
 def roundCount(count):
     return round(count * 2)/2
@@ -69,23 +86,29 @@ def normalize(d : dict, vec):
     filtered_dict = {k: v for k, v in norm.items() if min_count <= k <= max_count}
     return filtered_dict
 
-def getOnlyRewards(d : dict):
-    only = dict()
-    for count in d.keys():
-        (rewards, hands) = d[count]
-        if hands > 0:
-            only[count] = rewards
-    return only
-    # return {count: rewards for count, (rewards, hands) in d.items() if hands > 0}
+def getOnlyRewards(vec, d : dict):
+    # only = dict()
+    # for count in d.keys():
+    #     (rewards, hands) = d[count]
+    #     if hands > 0:
+    #         only[count] = rewards
+    # return only
+    min_count = common.lps_limit_min_vec if vec else common.lps_limit_min
+    max_count = common.lps_limit_max_vec if vec else common.lps_limit_max
 
-def getOnlyHands(d : dict):
-    only = dict()
-    for count in d.keys():
-        (_, hands) = d[count]
-        if hands > 0:
-            only[count] = hands
-    return only
-    # return {count: hands for count, (rewards, hands) in d.items() if hands > 0}
+    return {count: rewards for count, (rewards, hands) in d.items() if (hands > 0 and min_count <= count <= max_count)}
+
+def getOnlyHands(vec, d : dict):
+    # only = dict()
+    # for count in d.keys():
+    #     (_, hands) = d[count]
+    #     if hands > 0:
+    #         only[count] = hands
+    # return only
+    min_count = common.lps_limit_min_vec if vec else common.lps_limit_min
+    max_count = common.lps_limit_max_vec if vec else common.lps_limit_max
+
+    return {count: hands for count, (rewards, hands) in d.items() if (hands > 0 and min_count <= count <= max_count)}
 
 def getLPSLimit(vec=False):
     return common.lps_limit_vec if vec else common.lps_limit
@@ -103,27 +126,20 @@ def getWinrateMaxMin(max, vec):
             return common.lps_limit_min_vec + 1 #same
 
 
-def createLpsDict(vec=False):
-    d = loadFromDB('countDict')    
+def createLpsDict(vec=False, countDict=None):
     lps_dict = defaultdict(lambda: [0, 0])
     lps_limit = getLPSLimit(vec)
 
-    for count, (rewards, hands) in d.items():
+    for count, (rewards, hands) in countDict.items():
         if abs(count) < lps_limit:
             rounded = roundCount(count)
-            # if rounded not in lps_dict:
-            #     lps_dict[rounded] = d[count]
-            # else:
-            #     (lrewards, lhands) = lps_dict[rounded]
-            #     (rrewards, rhands) = d[count]
-            #     lps_dict[rounded] = (lrewards + rrewards, lhands + rhands)
             lps_dict[rounded][0] += rewards
             lps_dict[rounded][1] += hands
 
     return dict(lps_dict)
 
 class CountAgent:
-    def __init__(self, needMatrixes, vec=False):
+    def __init__(self, needMatrixes, vec=False, spread=common.spread, penetration=common.penetration, kellyFrac=common.kelly_fraction):
         self.game = sim.Game()
         self.Q_table = bs.initBasicStrategy()
         self.countDict = initCountDict(self.game)
@@ -132,6 +148,10 @@ class CountAgent:
             self.YVec = np.zeros(common.n_test)
         self.vec = vec
         self.needMatrixes = needMatrixes
+        self.spread = spread
+        self.kelly_frac = kellyFrac
+
+        self.game.shoe.penetration = penetration
 
     def handleBJ(self):
         reward, done = 0, False
@@ -140,7 +160,7 @@ class CountAgent:
         if player_state == 21 or dealer_sum == 21:
             reward = self.game.rewardHandler(dealer_sum, [player_state])
             if reward > 0:
-                self.game.money += (5/2) * self.game.bet
+                self.game.money += (1/2) * self.game.bet
                 reward *= 1.5
             done = True
         return reward, done
@@ -157,7 +177,7 @@ class CountAgent:
                            itertools.islice(self.Q_table[game_state][(player_state, dealer_state)].items(), 2)).get)
 
     # function that place the best bet, probably according to Kelly criterion
-    def getBet(self,betMethod):
+    def getBet(self, betMethod):
         if betMethod == 'const':
             return 1
         else:
@@ -175,15 +195,18 @@ class CountAgent:
                 E = common.winrateDict[count]
 
             if betMethod == 'spread':
-                return self.game.minBet if E <= 0 else self.game.minBet * common.spread
+                return self.game.minBet if E <= 0 else self.game.minBet * self.spread
 
             elif betMethod == 'kelly':
                 p = 0.5 + E
                 q = 1 - p
-                bet = max (self.game.minBet, int(self.game.money * (p - q)))
+                f = p - q
+
+                f *= self.kelly_frac
+                bet = max (self.game.minBet, int(self.game.money * f))
                 return bet
 
-    def runLoop(self,testIdx,betMethod='const'):
+    def runLoop(self,testIdx,betMethod='const', needCountDict=False):
         if self.needMatrixes:
             countVec = tuple(self.game.shoe.getNormVec())
         else:
@@ -217,7 +240,7 @@ class CountAgent:
         if self.needMatrixes:
             self.XVecs[testIdx, :] = countVec
             self.YVec[testIdx] = rewards
-        else:
+        elif needCountDict:
             (count_rewards, touched) = self.countDict[round(count, 1)]
             self.countDict[round(count, 1)] = (count_rewards + rewards, touched + 1)
 
@@ -275,9 +298,10 @@ def linear_reg(countAgent : CountAgent):
         # Writing data to a file
         pprint(d,f)
 
-def count_graphs(vec):
-    lps = createLpsDict(vec)
-    only = getOnlyRewards(lps)
+
+def count_graphs(vec, countDict):
+    lps = createLpsDict(vec, countDict)
+    only = getOnlyRewards(vec, lps)
     normalized_dict = normalize(lps, vec)
 
     if vec:
@@ -296,17 +320,22 @@ def count_graphs(vec):
             pprint(normalized_dict, f)
 
     fig = plt.figure(figsize=(8,5))
-    fig.add_subplot(211)
-    plt.title(f'Reward per Count\nNormalized by # of Occurrences per count ')
+    ax = fig.add_subplot(211)
+    plt.title(f'Reward per Count\nNormalized by # of Occurrences per Count ')
     plt.xlabel('Count')
-    plt.ylabel(r'$Reward_i/N_i$')
+    plt.ylabel(r'$\frac{Reward_{i}}{N_{i}}$')
+    plt.yticks(np.arange(-0.4, 0.5, 0.2))
+    plt.grid(True)
     plt.bar(*zip(*normalized_dict.items()))
+
+    plt.subplots_adjust(hspace = 0.5)
 
     fig.add_subplot(212)
     plt.bar(*zip(*only.items()))
     plt.title("Total Rewards - Count")
     plt.xlabel('Count')
     plt.ylabel('Rewards')
+    plt.grid(True)
     plt.savefig(f'res/CountNormalized_vec_{vec}', dpi=500)
 
     fig = plt.figure(figsize=(8,5))
@@ -314,77 +343,84 @@ def count_graphs(vec):
     plt.title("Histogram")
     plt.xlabel('Count')
     plt.ylabel('# of Occurrences')
-    plt.bar(*zip(*getOnlyHands(lps).items()))
-    plt.savefig(f'res/Histogram')
+    plt.bar(*zip(*getOnlyHands(vec, lps).items()))
+    plt.grid(True)
+    plt.savefig(f'res/Histogram_{vec}')
+
 
 def finalTest(vec = False):
     print("\nStarting finalTest")
     countAgent = CountAgent(needMatrixes=False,vec=vec)
     for i in tqdm(range(common.n_test)):
-        countAgent.runLoop(i)
+        countAgent.runLoop(i,needCountDict=True)
 
-    saveToDB('countDict', countAgent.countDict)
+    last_countDict = loadFromDB(f'countDict_{vec}')
+    new_countDict = join_dicts(countAgent.countDict, last_countDict)
 
-    count_graphs(vec)
+    saveToDB(f'countDict_{vec}', new_countDict)
+
+    count_graphs(vec, new_countDict)
+
+def singleGame(args):
+    (i, vec, betMethod, spread, penetration, kellyFrac) = args
+
+    data = np.zeros(common.graphs_max_hands)
+    failed = True
+    countAgent = None
+    while failed:
+        countAgent = CountAgent(needMatrixes=False, vec=vec, spread=spread, penetration=penetration, kellyFrac=kellyFrac)
+        hands = 0
+        data[0] = countAgent.game.money
+        while hands < common.graphs_max_hands:
+            if countAgent.game.money < countAgent.game.minBet and betMethod != "spread":
+                failed = True
+                # print(f"I SUCK ASS! {(i, vec, betMethod, spread, penetration, kellyFrac)} money = {countAgent.game.money} hands = {hands}")
+                break
+            else:
+                # print(countAgent.game.money)
+                failed = False
+
+            countAgent.runLoop(hands, betMethod, needCountDict=False)  # i=0 is redundent, just to pass something
+            if hands % common.graphs_sample_rate == 0:
+                data[hands] = countAgent.game.money
+            hands += 1
+
+    return (i, data, countAgent.game.total_bets / ((common.graphs_max_hands - 1) * common.min_bet))
 
 
-def batchGames(vec=False, loadWinRateFromDB=False, betMethod='kelly'):
-    # print(f'Starting batchGames - vec={vec}, betMethod={betMethod}')
+def multyProcessBatchGames(vec=False, betMethod='kelly', spread=common.spread, penetration=common.penetration, kellyFrac=common.kelly_fraction, queue=None):
     data = np.zeros((common.graphs_num_of_runs, common.graphs_max_hands))
     x_indices = np.arange(0, common.graphs_max_hands, common.graphs_sample_rate)
-
-    if loadWinRateFromDB:
-        if vec:
-            common.winrateDictVec = loadFromDB('winrateDictVec')
-        else:
-            common.winrateDict = loadFromDB('winrateDict')
-
-    if vec:
-        setMaxMin(common.winrateDictVec, vec)
-    else:
-        setMaxMin(common.winrateDict, vec)
-
+    
+    # pool = mp.Pool(os.cpu_count())
+    pool = mp.Pool(min(20, common.graphs_num_of_runs))
     avg_bet_sum = 0
-    # for i in tqdm(range(common.graphs_num_of_runs)):
-    for i in range(common.graphs_num_of_runs):
-        failed = True
-        while failed:
-            countAgent = CountAgent(needMatrixes=False, vec=vec)
-            hands = 0
-            data[i][0] = countAgent.game.money
-            while hands < common.graphs_max_hands:
-                if countAgent.game.money < countAgent.game.minBet and betMethod != "spread":
-                    print(f"This Sucks! I LOST ALL MY MONEY!! RUNNING AGAIN the {i}th run")
-                    failed = True
-                    hands -= 1
-                    break
-                else:
-                    failed = False
+    args = [(i, vec, betMethod, spread, penetration, kellyFrac) for i in range(common.graphs_num_of_runs)]
 
-                countAgent.runLoop(hands,betMethod) # i=0 is redundent, just to pass something
-                if hands % common.graphs_sample_rate == 0:
-                    data[i][hands] = countAgent.game.money
-                hands += 1
-            avg_bet_sum += countAgent.game.total_bets / ((common.graphs_max_hands-1)*common.min_bet)
+    for (i, run_data, avg_bet) in tqdm(pool.imap_unordered(singleGame, args), total=common.graphs_num_of_runs):
+        avg_bet_sum += avg_bet
+        data[i] = run_data
 
-    return data[:,x_indices], avg_bet_sum
+    if queue:
+        queue.put([vec, data[:, x_indices], avg_bet_sum])
+        return
+    else:
+        return data[:, x_indices], avg_bet_sum
 
 
 # betMethod: 'const'/'kelly'/'spread'
 def batchGamesAndFig(betMethod='kelly'):
     x_indices = np.arange(0, common.graphs_max_hands, common.graphs_sample_rate)
-    hiloData, hilo_avg_bet_sum = batchGames(vec=False,loadWinRateFromDB=False, betMethod=betMethod)
-    vecData, vec_avg_bet_sum = batchGames(vec=True,loadWinRateFromDB=True, betMethod=betMethod)
+    hiloData, hilo_avg_bet_sum = multyProcessBatchGames(vec=False, betMethod=betMethod)
+    vecData, vec_avg_bet_sum = multyProcessBatchGames(vec=True, betMethod=betMethod)
 
     vec_mean = np.mean(vecData, axis=0)
     vec_gmean = gmean(vecData, axis=0)
     vec_std = np.std(vecData, axis=0)
-    vec_norm_std = vec_std / vec_mean
 
     hilo_mean = np.mean(hiloData, axis=0)
     hilo_gmean = gmean(hiloData, axis=0)
     hilo_std = np.std(hiloData, axis=0)
-    hilo_norm_std = hilo_std / hilo_mean
 
     if betMethod == 'spread':
         print('Vec results:')
@@ -409,71 +445,224 @@ def batchGamesAndFig(betMethod='kelly'):
     ax.plot(x_indices, hilo_mean, label='HiLo Mean', color='red', linestyle='--')
     ax.plot(x_indices, hilo_gmean, label='HiLo Geo Mean', color='red', linestyle='-')
 
+    if betMethod == 'spread':
+        plt.ticklabel_format(style='sci', axis='y', scilimits=(5,5))
     plt.legend()
     plt.grid(True)
-    plt.savefig(f'res/MoneyGraph', dpi=500)
+    plt.savefig(f'res/MoneyGraph_{betMethod}', dpi=500)
 
     # STD plots
+    plt.figure(figsize=(15, 20)) 
+    plt.subplots_adjust(left=0.1, right=0.9, bottom=0.15, top=0.85)
     fig, ax = plt.subplots()
     plt.xlabel('Hands')
     plt.ylabel('Money')
-    plt.title(f"STD\nRunning {common.graphs_num_of_runs} games\nn_test = {common.n_test // common.MILLION}M")
+    plt.title(f"Mean with STD\nRunning {common.graphs_num_of_runs} games\nn_test = {common.n_test // common.MILLION}M")
 
-    # Vec subplot
-    ax.plot(x_indices, vec_norm_std, label='Vec STD', color='blue', linestyle='-')
-    # HiLo subplot
-    ax.plot(x_indices, hilo_norm_std, label='HiLo STD', color='red', linestyle='-')
+
+    # # Vec subplot
+    ax.plot(x_indices, vec_mean, label='Vec Mean', color='blue', linestyle='--')
+    # # HiLo subplot
+    ax.plot(x_indices, hilo_mean, label='HiLo Mean', color='red', linestyle='--')
+
+    if betMethod == 'spread':
+        plt.ticklabel_format(style='sci', axis='y', scilimits=(5, 5))
+    
+    
+    # ax.fill_between(x_indices, hilo_mean - 2*hilo_std, hilo_mean + 2*hilo_std, alpha=0.4)
+    
+    if betMethod == 'kelly':
+        ax.set_yscale('log')
+        ax.fill_between(x_indices, vec_mean, vec_mean + vec_std, alpha=0.2)
+        ax.fill_between(x_indices, hilo_mean, hilo_mean + hilo_std, alpha=0.2)
+    else:
+        ax.fill_between(x_indices, vec_mean - vec_std, vec_mean + vec_std, alpha=0.2)
+        ax.fill_between(x_indices, hilo_mean - hilo_std, hilo_mean + hilo_std, alpha=0.2)
 
     plt.legend()
     plt.grid(True)
-    plt.savefig(f'res/STDGraph', dpi=500)
+    plt.savefig(f'res/STDGraph_{betMethod}', dpi=500)
 
-def batchcGamesAndPenetrate(betMethod='kelly'):
-    vecPenDatas_mean = []
-    vecPenDatas_gmean = []
-    hiloPenDatas_mean = []
-    hiloPenDatas_gmean = []
+def MPBatchGamesWithArgs(betMethod, penetration=common.penetration, kellyFrac=common.kelly_fraction, spread=common.spread, queue=None, x = None):
+    # print('start MultyProcess - Vec')
+    # vecData,_ = multyProcessBatchGames(vec=True, betMethod=betMethod, penetration=penetration, kellyFrac=kellyFrac, spread=spread)
+    # print('start MultyProcess - Hilo')
+    # hiloData,_ = multyProcessBatchGames(vec=False, betMethod=betMethod,penetration=penetration, kellyFrac=kellyFrac, spread=spread)
 
+    processes = []
+    queue_2 = mp.Queue()
+    for vec in [True, False]:
+        p = mp.Process(target=multyProcessBatchGames, args=(vec, betMethod, penetration, kellyFrac, spread, queue_2))
+        p.start()
+        processes.append(p)
+
+    results = dict()
+    for p in processes:
+        p.join()
+        returned_values = queue_2.get()
+        results[returned_values[0]] = returned_values[1:]
+
+    vecData = results[True][0]
+    hiloData = results[False][0]
+
+    vec_mean = np.mean(vecData, axis=0)
+    vec_gmean = gmean(vecData, axis=0)
+    vec_std = np.std(vecData, axis=0)
+
+    hilo_mean = np.mean(hiloData, axis=0)
+    hilo_gmean = gmean(hiloData, axis=0)
+    hilo_std = np.std(hiloData, axis=0)
+
+    queue.put([vec_mean[-1], vec_gmean[-1], vec_std[-1], hilo_mean[-1], hilo_gmean[-1], hilo_std[-1], x])
+
+def handleMPArgs(testedArg, x_indices, betMethod='kelly'):
+    vecDatas_mean = dict()
+    vecDatas_gmean = dict()
+    vecDatas_std = dict()
+    hiloDatas_mean = dict()
+    hiloDatas_gmean = dict()
+    hiloDatas_std = dict()
+
+    results = []
+    queue = mp.Queue()
+    args = [betMethod, common.penetration, common.kelly_fraction, common.spread, queue]
+    for x in x_indices:
+        if testedArg == 'penetration':
+            args[1] = x
+        elif testedArg == 'kelly_fraction':
+            args[2] = x
+        elif testedArg == 'spread':
+            args[3] = x
+        else:
+            raise Exception("WRONG testedArg")
+
+        p = mp.Process(target=MPBatchGamesWithArgs, args=tuple(args + [x]))
+        p.start()
+        results.append(p)
+
+    for p in results:
+        p.join()
+        returned_values = queue.get()
+        x = returned_values[6]
+        vecDatas_mean[x] = returned_values[0]
+        vecDatas_gmean[x] = returned_values[1]
+        vecDatas_std[x] = returned_values[2]
+        hiloDatas_mean[x] = returned_values[3]
+        hiloDatas_gmean[x] = returned_values[4]
+        hiloDatas_std[x] = returned_values[5]
+
+    return [vecDatas_mean, vecDatas_gmean, vecDatas_std, hiloDatas_mean, hiloDatas_gmean, hiloDatas_std]
+
+def batchGamesAndPenetrate(betMethod='kelly'):
     a,b = common.penetration_sample_rate.split('/')
     pen_rate = float(a) / float(b)
-    x_indices = np.arange(1,0,-pen_rate)
+    x_indices = np.arange(1,pen_rate,-pen_rate)
 
-    for penetration in tqdm(x_indices):
-        common.penetration = penetration
-
-        hiloData, _ = batchGames(vec=False, loadWinRateFromDB=False, betMethod=betMethod)
-        vecData, _ = batchGames(vec=True, loadWinRateFromDB=True, betMethod=betMethod)
-
-        vec_mean = np.mean(vecData, axis=0)
-        vec_gmean = gmean(vecData, axis=0)
-        hilo_mean = np.mean(hiloData, axis=0)
-        hilo_gmean = gmean(hiloData, axis=0)
-
-        vecPenDatas_mean.append(vec_mean[-1])
-        vecPenDatas_gmean.append(vec_gmean[-1])
-        hiloPenDatas_mean.append(hilo_mean[-1])
-        hiloPenDatas_gmean.append(hilo_gmean[-1])
+    results = handleMPArgs(testedArg='penetration', x_indices=x_indices, betMethod=betMethod)
+    vecDatas_mean    = {k*6:v for k,v in results[0].items()}
+    vecDatas_gmean   = {k*6:v for k,v in results[1].items()}
+    vecDatas_std     = {k*6:v for k,v in results[2].items()}
+    hiloDatas_mean   = {k*6:v for k,v in results[3].items()}
+    hiloDatas_gmean  = {k*6:v for k,v in results[4].items()}
+    hiloDatas_std    = {k*6:v for k,v in results[5].items()}
 
     fig, ax = plt.subplots()
     plt.title(f'Money - Penetration\nPenetration Sample Rate = {common.penetration_sample_rate}\nRunning {common.graphs_num_of_runs} games each')
     plt.xlabel(f'# of Played Decks out of {common.num_of_decks}')
     plt.xticks(np.arange(0, common.num_of_decks+0.5, 0.5))
     plt.ylabel('Money')
-    if betMethod == 'kelly':
+    if betMethod == 'spread':
+        plt.ticklabel_format(style='sci', axis='y', scilimits=(5, 5))
+    elif betMethod == 'kelly':
         ax.set_yscale('log')
 
-    x_indices *= common.num_of_decks
-
     # Vec subplots
-    ax.plot(x_indices, vecPenDatas_mean, label='Vec Mean', color='blue', linestyle='--')
-    ax.plot(x_indices, vecPenDatas_gmean, label='Vec Geo Mean', color='blue', linestyle='-')
+    ax.plot(*zip(*sorted(vecDatas_mean.items())), label='Vec Mean', color='blue', linestyle='--')
+    ax.plot(*zip(*sorted(vecDatas_gmean.items())), label='Vec Geo Mean', color='blue', linestyle='-')
     # HiLo subplots
-    ax.plot(x_indices, hiloPenDatas_mean, label='HiLo Mean', color='red', linestyle='--')
-    ax.plot(x_indices, hiloPenDatas_gmean, label='HiLo Geo Mean', color='red', linestyle='-')
+    ax.plot(*zip(*sorted(hiloDatas_mean.items())), label='HiLo Mean', color='red', linestyle='--')
+    ax.plot(*zip(*sorted(hiloDatas_gmean.items())), label='HiLo Geo Mean', color='red', linestyle='-')
 
     plt.legend()
     plt.grid(True)
-    plt.savefig(f'res/MoneyPerPenetration', dpi=500)
+    plt.savefig(f'res/MoneyPerPenetration_{betMethod}', dpi=500)
+
+
+def kellyFractionGraph():
+    print("\nStarting kellyFractionGraph")
+
+    x_indices = np.arange(0.2,0.9,common.kelly_frac_sample_rate)
+
+    results = handleMPArgs(testedArg='kelly_fraction', x_indices=x_indices, betMethod='kelly')
+    # vecDatas_mean = results[0]
+    vecDatas_gmean = results[1]
+    # vecDatas_std = results[2]
+    # hiloDatas_mean = results[3]
+    hiloDatas_gmean = results[4]
+    # hiloDatas_std = results[5]
+
+    fig, ax = plt.subplots()
+    plt.title(f'Money - Kelly Fraction\nRunning {common.graphs_num_of_runs} games each')
+    plt.xlabel(f'Kelly Fraction')
+    # plt.xticks(np.arange(0, 2, 0.1))
+    plt.ylabel('Money')
+    ax.set_yscale('log')
+
+    # Vec subplots
+    # ax.plot(*zip(*sorted(vecDatas_mean.items())), label='Vec Mean', color='blue', linestyle='--')
+    ax.plot(*zip(*sorted(vecDatas_gmean.items())), label='Vec Geo Mean', color='blue', linestyle='-')
+    # HiLo subplots
+    # ax.plot(*zip(*sorted(hiloDatas_mean.items())), label='HiLo Mean', color='red', linestyle='--')
+    ax.plot(*zip(*sorted(hiloDatas_gmean.items())), label='HiLo Geo Mean', color='red', linestyle='-')
+
+    plt.legend()
+    plt.grid(True)
+    plt.savefig(f'res/MoneyPerKellyFrac', dpi=500)
+
+def spreadGraph():
+    print("\nStarting spreadGraph")
+
+    x_indices = np.arange(2,25,common.spread_sample_rate)
+
+    results = handleMPArgs(testedArg='spread', x_indices=x_indices, betMethod='spread')
+    vecDatas_mean = results[0]
+    # vecDatas_gmean = results[1]
+    vecDatas_std = results[2]
+    hiloDatas_mean = results[3]
+    # hiloDatas_gmean = results[4]
+    hiloDatas_std = results[5]
+
+    fig, ax = plt.subplots()
+    plt.title(f'Money - Spread\nRunning {common.graphs_num_of_runs} games each')
+    plt.xlabel(f'Spread Value')
+    plt.ylabel('Money')
+    plt.ticklabel_format(style='sci', axis='y', scilimits=(5, 5))
+
+    # Vec subplots
+    x_vec, y_vec = zip(*sorted(vecDatas_mean.items()))
+    ax.plot(x_vec, y_vec, label='Vec Mean', color='blue', linestyle='--')
+
+    x_vec_std, y_vec_std = zip(*sorted(vecDatas_std.items()))
+    ax.fill_between(x_vec_std, np.array(y_vec) - np.array(y_vec_std), np.array(y_vec) + np.array(y_vec_std), alpha=0.2)
+
+    # HiLo subplots
+    x_hilo, y_hilo = zip(*sorted(hiloDatas_mean.items()))
+    ax.plot(x_hilo, y_hilo, label='HiLo Mean', color='red', linestyle='--')
+
+    x_hilo_std, y_hilo_std = zip(*sorted(hiloDatas_std.items()))
+    ax.fill_between(x_hilo_std, np.array(y_hilo) - np.array(y_hilo_std), np.array(y_hilo) + np.array(y_hilo_std),
+                    alpha=0.2)
+    # # Vec subplots
+    # ax.plot(*zip(*sorted(vecDatas_mean.items())), label='Vec Mean', color='blue', linestyle='--')
+    # # HiLo subplots
+    # ax.plot(*zip(*sorted(hiloDatas_mean.items())), label='HiLo Mean', color='red', linestyle='--')
+    #
+    # ax.fill_between(x_indices, np.array(vecDatas_mean) - np.array(vecDatas_std), np.array(vecDatas_mean) + np.array(vecDatas_std), alpha=0.2)
+    # ax.fill_between(x_indices, np.array(hiloDatas_mean) - np.array(hiloDatas_std), np.array(hiloDatas_mean) + np.array(hiloDatas_std), alpha=0.2)
+
+    plt.legend()
+    plt.grid(True)
+    plt.savefig(f'res/MoneyPerSpread', dpi=500)
 
 def run_create_vec():
     print("\nStarting run_create_vec")
@@ -483,12 +672,54 @@ def run_create_vec():
 
     linear_reg(countAgent)
 
+
+def multyprocessFinalTest():
+    print("\nStarting multyprocessFinalTest")
+    mp_pool = mp.Pool(2)
+    vecs = [True, False]
+    mp_pool.map(finalTest, vecs)
+    mp_pool.close()
+    mp_pool.join()
+
+
+def multyprocessBatchAndFig():
+    print("\nStarting multyprocessBatchAndFig")
+    p1 = mp.Process(target=batchGamesAndFig, args=('spread',))
+    p2 = mp.Process(target=batchGamesAndFig, args=('kelly',))
+    p1.start()
+    p2.start()
+    p1.join()
+    p2.join()
+
+
+def multyprocessBatchGamesAndPenetrate():
+    print("\nStarting multyprocessBatchGamesAndPenetrate")
+    p1 = mp.Process(target=batchGamesAndPenetrate, args=('spread',))
+    p2 = mp.Process(target=batchGamesAndPenetrate, args=('kelly',))
+    p1.start()
+    p2.start()
+    p1.join()
+    p2.join()
+
+
 def main():
+    common.winrateDictVec = loadFromDB('winrateDictVec')
+    common.winrateDict = loadFromDB('winrateDict')
+    setMaxMin(common.winrateDictVec, vec=True)
+    setMaxMin(common.winrateDict, vec=True)
+
     # initializeDB()
     # run_create_vec()
-    # finalTest(vec=True)
-    batchGamesAndFig(betMethod='spread')
-    # batchcGamesAndPenetrate(betMethod='kelly')
+    # multyprocessFinalTest()
+    # multyprocessBatchAndFig()
+    spreadGraph()
+    multyprocessBatchGamesAndPenetrate()
+    kellyFractionGraph()
+
+    # for i in range(1):
+    # x_indices = range(0,common.graphs_max_hands,1000)
+    # (_, data, _) = singleGame(((0, False, "kelly", common.spread, common.penetration, 0.5)))
+    # pprint(data[x_indices])
 
 if __name__ == '__main__':
     main()

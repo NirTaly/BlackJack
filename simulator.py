@@ -10,16 +10,27 @@ cards_values = {1: 11, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8, 9: 9, 10: 10, 1
 cards_count = {1: -1, 2: 1, 3: 1, 4: 1, 5: 1, 6: 1, 7: 0, 8: 0, 9: 0, 10: -1, 11: -1, 12: -1, 13: -1}
 
 #Bias = 0.006928951467022775
-cards_vec_count = {1: -10.559050335551536,
- 2: 6.626549835944278,
- 3: 7.643277584657614,
- 4: 9.394683388516347,
- 5: 12.613992633565802,
- 6: 7.642751642233357,
- 7: 3.725994331219095,
- 8: -1.0408825072432364,
- 9: -3.4816847223829885,
- 10: -8.141558921741513}
+# cards_vec_count = {1: -10.559050335551536,
+#  2: 6.626549835944278,
+#  3: 7.643277584657614,
+#  4: 9.394683388516347,
+#  5: 12.613992633565802,
+#  6: 7.642751642233357,
+#  7: 3.725994331219095,
+#  8: -1.0408825072432364,
+#  9: -3.4816847223829885,
+#  10: -8.141558921741513}
+
+cards_vec_count = {1: -9.633157680380947,
+ 2: 5.865425788620057,
+ 3: 6.819837964981865,
+ 4: 8.671875332827337,
+ 5: 10.889873899987279,
+ 6: 6.555304867337135,
+ 7: 3.4131097220163955,
+ 8: -0.4359162635090514,
+ 9: -2.9896812474366574,
+ 10: -7.291308209106275}
 
 
 class Shoe:
@@ -34,8 +45,8 @@ class Shoe:
             self.rebuild()
         elif len(self.cards) == common.DECK_SIZE * common.num_of_decks:
             pass
-        elif len(self.cards) % common.DECK_SIZE == 0:
-            self.rem_decks -= 1
+        elif len(self.cards) % (common.DECK_SIZE/2) == 0:
+            self.rem_decks -= 0.5
 
         card = self.cards.pop(0)
         self.running_count += cards_count[card]
@@ -57,19 +68,18 @@ class Shoe:
         self.rem_decks = self.n
         self.cards = [*range(1, 14)] * 4 * self.n
 
+        random.shuffle(self.cards)
+
         # penetration
         num_of_cards_to_remove = int(common.DECK_SIZE * common.num_of_decks * (1 - self.penetration))
         del self.cards[:num_of_cards_to_remove]
-
-        random.shuffle(self.cards)
-
+        self.rem_decks -= num_of_cards_to_remove // common.DECK_SIZE #TODO: verify the rem_decks after cut
 
     def getNormVec(self):
         divided = self.countVec / self.rem_decks
         divided[0] = 1
         divided[10] = divided[10] / 4
         return divided
-    
 
 class Game:
     def __init__(self):
