@@ -403,7 +403,6 @@ def multyProcessBatchGames(vec=False, betMethod='kelly', spread=common.spread, p
 
     if queue:
         queue.put([vec, data[:, x_indices], avg_bet_sum])
-        return
     else:
         return data[:, x_indices], avg_bet_sum
 
@@ -483,27 +482,10 @@ def batchGamesAndFig(betMethod='kelly'):
     plt.grid(True)
     plt.savefig(f'res/STDGraph_{betMethod}', dpi=500)
 
-def MPBatchGamesWithArgs(betMethod, penetration=common.penetration, kellyFrac=common.kelly_fraction, spread=common.spread, queue=None, x = None):
-    # print('start MultyProcess - Vec')
-    # vecData,_ = multyProcessBatchGames(vec=True, betMethod=betMethod, penetration=penetration, kellyFrac=kellyFrac, spread=spread)
-    # print('start MultyProcess - Hilo')
-    # hiloData,_ = multyProcessBatchGames(vec=False, betMethod=betMethod,penetration=penetration, kellyFrac=kellyFrac, spread=spread)
+def MPBatchGamesWithArgs(betMethod, penetration=common.penetration, kellyFrac=common.kelly_fraction, spread=common.spread, queue=None, x=None):
+    vecData,_ = multyProcessBatchGames(vec=True, betMethod=betMethod, penetration=penetration, kellyFrac=kellyFrac, spread=spread)
+    hiloData,_ = multyProcessBatchGames(vec=False, betMethod=betMethod,penetration=penetration, kellyFrac=kellyFrac, spread=spread)
 
-    processes = []
-    queue_2 = mp.Queue()
-    for vec in [True, False]:
-        p = mp.Process(target=multyProcessBatchGames, args=(vec, betMethod, penetration, kellyFrac, spread, queue_2))
-        p.start()
-        processes.append(p)
-
-    results = dict()
-    for p in processes:
-        p.join()
-        returned_values = queue_2.get()
-        results[returned_values[0]] = returned_values[1:]
-
-    vecData = results[True][0]
-    hiloData = results[False][0]
 
     vec_mean = np.mean(vecData, axis=0)
     vec_gmean = gmean(vecData, axis=0)
@@ -706,7 +688,7 @@ def main():
     common.winrateDictVec = loadFromDB('winrateDictVec')
     common.winrateDict = loadFromDB('winrateDict')
     setMaxMin(common.winrateDictVec, vec=True)
-    setMaxMin(common.winrateDict, vec=True)
+    setMaxMin(common.winrateDict, vec=False)
 
     # initializeDB()
     # run_create_vec()
