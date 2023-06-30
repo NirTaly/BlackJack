@@ -27,6 +27,15 @@ def CreateQTable(player_state_tuple, legal_actions):
 
     return Q_table
 
+def CreateSimpleQTable(player_state_tuple):
+    Q_table = dict()
+    start, stop, step = player_state_tuple
+    tuple_player_dealer_list = list(itertools.product(list(range(start, stop, step)), list(range(2, 12))))
+    for key in tuple_player_dealer_list:
+        Q_table[key] = ''
+
+    return Q_table
+
 def playerStateFromGameState(Game, game_state, player_state):
     if game_state == 2:
         if Game.playerCards[0][0] == 1:
