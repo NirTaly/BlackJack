@@ -38,8 +38,8 @@ splitAcesAndDone = False
 num_of_decks = 8
 min_bet = 50 #initial_money // 200
 penetration = 6/8  # % of cards to play with (1-penetration = % of cards to remove)
-vec_kelly_fraction = 0.45  # risk fraction for uncertainty
-hilo_kelly_fraction = 1.05
+vec_kelly_fraction = 1  # risk fraction for uncertainty
+hilo_kelly_fraction = 1
 spread = 25
 
 #w vector for counting in half decks
